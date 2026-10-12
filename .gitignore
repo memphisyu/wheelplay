@@ -51,3 +51,5 @@ replay_pid*
 # macOS metadata
 .DS_Store
 ._*
+
+.build-tools/

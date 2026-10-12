@@ -2659,7 +2659,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val bitmap = customBitmap ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home)
         preview.setImageBitmap(bitmap)
         iconStatusView?.text =
-            if (customBitmap != null) "Custom 1:1 icon" else "Default NIO icon"
+            if (customBitmap != null) "Custom 1:1 icon" else "Default XPENG icon"
     }
 
     private fun currentActivitySize(): DisplaySize? {

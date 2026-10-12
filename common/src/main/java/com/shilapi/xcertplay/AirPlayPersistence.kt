@@ -76,7 +76,7 @@ object AirPlayPersistence {
     private const val CUSTOM_ICON_FILE = "airplay-icon.png"
 
     const val DEFAULT_MODEL = "WheelPlay"
-    const val DEFAULT_SIMULATED_MANUFACTURER_NAME = "NIO"
+    const val DEFAULT_SIMULATED_MANUFACTURER_NAME = "XPENG"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadBrowserAudioPlayback(context: Context): Boolean =
@@ -390,7 +390,7 @@ object AirPlayPersistence {
 
     fun loadMediaBufferMillis(context: Context): Int = com.shilapi.xcertplay.media.MediaAudioBuffer.sanitize(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_MEDIA_BUFFER_MS, com.shilapi.xcertplay.media.MediaAudioBuffer.DEFAULT_MILLIS),
+            .getInt(KEY_MEDIA_BUFFER_MS, 500),
     )
 
     fun saveMediaBufferMillis(context: Context, millis: Int) {

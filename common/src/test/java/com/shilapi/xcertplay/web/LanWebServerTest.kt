@@ -333,7 +333,10 @@ class LanWebServerTest {
                 assertArrayEquals("Static image must be sent on connect", byteArrayOf(42), frame(client))
                 // Control replies must work even while the JPEG is waiting for an ACK.
                 text(client, "{\"type\":\"ping\"}")
-                assertEquals("status", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                val status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertEquals("status", status.getString("type"))
+                assertEquals("now-playing", status.getJSONObject("media").getString("type"))
+                assertFalse(status.getJSONObject("media").getBoolean("available"))
                 handshake(WebSession.code).use { other ->
                     assertTrue(readHeaders(other).startsWith("HTTP/1.1 101"))
                     assertEquals("busy", org.json.JSONObject(frame(other).toString(Charsets.UTF_8)).getString("type"))

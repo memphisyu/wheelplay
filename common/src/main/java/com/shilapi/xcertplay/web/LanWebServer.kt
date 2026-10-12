@@ -89,6 +89,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             "/", "/index.html" -> "index.html" to "text/html; charset=utf-8"
             "/app.js" -> "app.js" to "text/javascript; charset=utf-8"
             "/style.css" -> "style.css" to "text/css; charset=utf-8"
+            "/browser-media.js" -> "browser-media.js" to "text/javascript; charset=utf-8"
             "/browser-audio.js" -> "browser-audio.js" to "text/javascript; charset=utf-8"
             "/audio-worklet.js" -> "audio-worklet.js" to "text/javascript; charset=utf-8"
             else -> return response(Response.Status.NOT_FOUND, "Not found")
@@ -341,6 +342,14 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                 if (data.optString("type") != "rtc-answer") require(message.binaryPayload.size <= 2048)
                 lastSeen = SystemClock.elapsedRealtime()
                 when (data.getString("type")) {
+                    "media-command" -> {
+                        val command = com.shilapi.xcertplay.media.MediaCommand.valueOf(data.getString("command"))
+                        val source = com.shilapi.xcertplay.CarPlayBackgroundSession.snapshot()?.controller
+                        val state = source?.mediaSnapshot()
+                        if (state?.available == true && state.connectionGeneration == data.getLong("generation")) {
+                            source.sendMediaCommand(command, state.connectionGeneration)
+                        }
+                    }
                     "audio-ready" -> {
                         val playback = data.getBoolean("playback")
                         val microphone = data.getBoolean("microphone")
@@ -365,11 +374,19 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                         require(WebSession.reportBrowserViewport(width, height))
                     }
                     "ping" -> {
+                        val state = com.shilapi.xcertplay.CarPlayBackgroundSession.snapshot()?.controller?.mediaSnapshot()
+                        val mediaStatus = JSONObject().put("type", "now-playing")
+                            .put("available", state?.available == true).put("generation", state?.connectionGeneration ?: 0)
+                            .put("title", state?.title ?: state?.appName ?: "CarPlay")
+                            .put("artist", state?.artist ?: "").put("album", state?.album ?: "")
+                            .put("playing", state?.playing == true).put("duration", (state?.durationMs ?: 0) / 1000.0)
+                            .put("position", (state?.positionAt(SystemClock.elapsedRealtime()) ?: 0) / 1000.0)
+
                         reconcileVideo()
                         val frame = WebSession.frame
                         synchronized(rtcLock) { reply(WebStreamSender.Control.STATUS,
                             JSONObject().put("type", "status").put("width", WebSession.width)
-                            .put("height", WebSession.height).put("stage", WebSession.stage)
+                            .put("height", WebSession.height).put("stage", WebSession.stage).put("media", mediaStatus)
                             .put("streaming", WebSession.videoActive && (frame != null || rtc?.connected == true || rtc?.holdingFrame == true))
                             .put("rtcAvailable", rtcConfig != null && !rtcAttempted && WebSession.videoActive)
                             .put("rtcFrames", rtc?.sentFrames ?: 0)

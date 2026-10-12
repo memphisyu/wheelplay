@@ -86,3 +86,14 @@ test('flush stops when actual WebSocket buffering crosses the watermark', () => 
   assert.deepEqual(f.sent, [touch(0), touch(0.5, false)]);
   assert.equal(f.timers.size, 0);
 });
+
+test('media actions remain ordered under congestion and are discarded on disconnect', () => {
+  const f=fixture();
+  f.outbox.send({type:'media-command',command:'NEXT',generation:7});
+  f.outbox.send({type:'media-command',command:'PREVIOUS',generation:7});
+  f.socket.bufferedAmount=0; f.advance(10);
+  assert.deepEqual(f.sent.map(x=>x.command),['NEXT','PREVIOUS']);
+  f.socket.bufferedAmount=8192; f.outbox.send({type:'media-command',command:'NEXT',generation:7});
+  f.outbox.close(); f.socket.bufferedAmount=0; f.advance(100);
+  assert.equal(f.sent.length,2);
+});

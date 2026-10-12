@@ -68,7 +68,7 @@ export function createControlOutbox(socket, {
         if (kind === 'move' && tail && tail.kind === 'move') tail.json = json;
         else if (touches.length < 64) touches.push({ kind, json });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'media-command'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
         signals.push(json);
       } else return false;
@@ -315,6 +315,7 @@ export function createRtcReceiver(video, {
   };
 }
 
+import { createBrowserMedia } from './browser-media.js';
 import { createBrowserAudio } from './browser-audio.js';
 
 if (typeof document !== 'undefined') {
@@ -501,6 +502,7 @@ if (typeof document !== 'undefined') {
   $('refresh-qr').addEventListener('click', startQr);
   const pointers = new Map();
   const send = (data, kind) => outbox ? outbox.send(data, kind) : false;
+  const browserMedia = createBrowserMedia({ send });
   const browserAudio = createBrowserAudio({
     send,
     sendBinary: packet => {
@@ -600,7 +602,7 @@ if (typeof document !== 'undefined') {
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
     cleanupRtc(); cleanupImage(); setLive(false);
-    browserAudio.close(); $('audio-message').hidden = true;
+    browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     $('disconnect').hidden = true; $('connect').disabled = false;
     $('status').textContent = '已断开';
@@ -663,6 +665,7 @@ if (typeof document !== 'undefined') {
       if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
       if (typeof event.data === 'string') {
         const data = JSON.parse(event.data);
+        browserMedia.control(data);
         if (browserAudio.control(data)) return;
         if (data.type === 'rtc-offer' || data.type === 'rtc-stop') {
           if (data.type === 'rtc-stop') rtcRequested = false;
@@ -677,6 +680,7 @@ if (typeof document !== 'undefined') {
           const message = data.message; disconnect(); $('message').textContent = message; return;
         }
         if (data.type === 'status') {
+          if (data.media) browserMedia.control(data.media);
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
           lastStatus = Date.now(); width = data.width; height = data.height;
@@ -715,7 +719,7 @@ if (typeof document !== 'undefined') {
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
       socket = null; pointers.clear(); clearInterval(heartbeat); cleanupRtc(); cleanupImage(); setLive(false);
-      browserAudio.close(); $('audio-message').hidden = true;
+      browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
       if (stopped) return;
       if (!paired || ++attempts > 8) {
         disconnect(); $('status').textContent = '连接未成功';

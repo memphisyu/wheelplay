@@ -532,7 +532,7 @@ class DiPlayActivity : AppCompatActivity() {
             }
             choice(card, "分辨率", listOf("原始分辨率", "80% · 降低负载", "60% · 最低负载"), listOf(10, 8, 6).indexOf(AirPlayPersistence.loadDisplayScaleTenths(this)).coerceAtLeast(0)) { AirPlayPersistence.saveDisplayScaleTenths(this, listOf(10, 8, 6)[it]) }
             val bufferPresets = com.shilapi.xcertplay.media.MediaAudioBuffer.presets
-            choice(card, "音频缓冲", listOf("300 ms · 默认", "500 ms", "1000 ms · 更稳定"),
+            choice(card, "音频缓冲", listOf("300 ms", "500 ms · 小鹏推荐", "1000 ms · 更稳定"),
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
                 WebSession.setMediaBufferMillis(this, bufferPresets[it])
             }
@@ -565,6 +565,16 @@ class DiPlayActivity : AppCompatActivity() {
                 "在兼容的 $simulatedManufacturerName 设备上显示导航箭头、距离与路名，支持情况取决于车型。",
                 com.shilapi.xcertplay.hud.BydOutputSettings.enabled(this)) { com.shilapi.xcertplay.hud.BydOutputSettings.setEnabled(this, it) }
         }
+        section(content, "锁屏连接保护") { card ->
+            card.addView(label("服务运行时保持 CPU 和 Wi-Fi；锁屏事件会写入诊断报告。Root 辅助仅配置本应用的系统省电豁免，不能保证绕过 ColorOS 网络限制。", 14, MUTED))
+            card.addView(label(RootKeepAlive.summary(this), 14, MUTED))
+            card.addView(button("Root 配置本应用省电豁免", false) {
+                configureWeb("省电豁免已配置，请重新测试锁屏") { RootKeepAlive.apply(applicationContext); null }
+            }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(12))
+            card.addView(button("恢复本功能修改的省电设置", false) {
+                configureWeb("已恢复本功能修改的省电设置") { RootKeepAlive.restore(applicationContext); null }
+            }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(12))
+        }
         section(content, "权限与连接帮助") { card ->
             card.addView(label("附近设备权限用于连接 iPhone，麦克风用于 Siri 和通话。旧版 Android 的无线连接还需要定位权限，USB 模式可能请求本地 VPN 授权。", 16, MUTED))
             card.addView(ui.preference("浏览器 HTTPS 证书", "查看本设备证书指纹") {
@@ -590,7 +600,7 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(exportButton, ui.secondaryButtonLayout(12))
             val destination = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "报告保存到 Downloads/WheelPlay。" else "请选择报告保存位置。"
             card.addView(label(destination + "不会自动上传，报告排除协议载荷和凭据。", 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
-            card.addView(label("基于 xcertplay / DiPlay，保留 GPL-3.0 与 AGPL-3.0 许可声明。CarPlay 与 NIO 图标属于各自权利人。", 13, MUTED).apply { setPadding(0, dp(20), 0, 0) })
+            card.addView(label("基于 xcertplay / DiPlay，保留 GPL-3.0 与 AGPL-3.0 许可声明。CarPlay 与 XPENG 图标属于各自权利人。", 13, MUTED).apply { setPadding(0, dp(20), 0, 0) })
         }
         section(content, "开源") { card ->
             card.addView(ui.preference("源码地址", "github.com/fython/wheelplay") {
@@ -1090,13 +1100,14 @@ class DiPlayActivity : AppCompatActivity() {
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
                     appendLine("Tesla compatibility: enabled=${TeslaHttpCompatibility.config(appContext).enabled}; rootRoutingReady=${TeslaHttpCompatibility.status.address != null}; downstreams=${TeslaHttpCompatibility.status.downstreams.joinToString()}")
                     TeslaHttpCompatibility.status.error?.let { appendLine("Tesla compatibility status: $it") }
+                    appendLine(RootKeepAlive.summary(appContext))
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
                     appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
                     appendLine()
                     appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
                     appendLine(DisplayDiagnosticSnapshot.report(appContext))
                     appendLine()
-                    for (name in SessionLogFile.REPORT_NAMES) {
+                    for (name in SessionLogFile.REPORT_NAMES + "keepalive.log") {
                         val file = File(appContext.filesDir, "logs/$name")
                         if (file.isFile) {
                             appendLine("--- $name ---")

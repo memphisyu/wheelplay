@@ -30,6 +30,22 @@ import com.shilapi.xcertplay.host.R
 /** Keeps the connection and its media session alive while no dashboard is visible. */
 class DiPlaySessionService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private lateinit var screenProtection: LockScreenProtection
+    private val screenEvents = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) {
+            @Suppress("DEPRECATION")
+            val network = intent.getParcelableExtra<android.net.NetworkInfo>(android.net.wifi.p2p.WifiP2pManager.EXTRA_NETWORK_INFO)
+            RootKeepAlive.record(context, "broadcast ${intent.action} p2p=${network?.detailedState}")
+        }
+    }
+    private val keepaliveTick = object : Runnable {
+        override fun run() {
+            if (!destroyed) {
+                RootKeepAlive.record(this@DiPlaySessionService, "heartbeat cpu=${wakeLock?.isHeld == true} web=${WebSession.running}")
+                main.postDelayed(this, 30000)
+            }
+        }
+    }
     private lateinit var media: CarPlayMediaSessionBridge
     private var sessionSubscription: AutoCloseable? = null
     private val main = Handler(Looper.getMainLooper())
@@ -41,6 +57,16 @@ class DiPlaySessionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        screenProtection = LockScreenProtection(this)
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
+            addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+            addAction(android.net.wifi.p2p.WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+        }
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenEvents, filter, android.content.Context.RECEIVER_EXPORTED)
+        else registerReceiver(screenEvents, filter)
+        main.post(keepaliveTick)
+        RootKeepAlive.record(this, "service created")
         RootAccess.checkOnStartup()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "CarPlay 服务", NotificationManager.IMPORTANCE_LOW))
@@ -81,6 +107,7 @@ class DiPlaySessionService : Service() {
             CarPlayBackgroundSession.stop()
             wakeLock?.let { if (it.isHeld) it.release() }
             wakeLock = null
+            screenProtection.release()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -97,6 +124,7 @@ class DiPlaySessionService : Service() {
             if (!destroyed) WebSession.start(this)
             updateNotification()
             val acquireWakeLock = {
+                if (!destroyed && WebSession.running) screenProtection.acquire()
                 if (!destroyed && WebSession.running && wakeLock == null) {
                     wakeLock = getSystemService(PowerManager::class.java)
                         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WheelPlay:server").apply { acquire() }
@@ -160,7 +188,11 @@ class DiPlaySessionService : Service() {
     }
 
     override fun onDestroy() {
+        RootKeepAlive.record(this, "service destroyed")
         destroyed = true
+        main.removeCallbacks(keepaliveTick)
+        runCatching { unregisterReceiver(screenEvents) }
+        screenProtection.release()
         sessionSubscription?.close()
         media.close()
         runWebAction { WebSession.stop() }

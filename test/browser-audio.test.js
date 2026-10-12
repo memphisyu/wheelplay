@@ -22,7 +22,7 @@ test('PCM frames validate format and preserve stream, rate, channels and sequenc
   assert.equal(decodeAudioPacket(new Uint8Array([1]).buffer), null);
 });
 
-async function playbackPlayer(mediaBufferMillis) {
+async function playbackPlayer(mediaBufferMillis, output = null) {
   const sources = [], controls = [];
   const context = {
     state: 'running', currentTime: 0, destination: {}, async resume() {}, async close() {},
@@ -31,11 +31,11 @@ async function playbackPlayer(mediaBufferMillis) {
       return { duration: count / rate, getChannelData(channel) { return data[channel]; } };
     },
     createBufferSource() {
-      const node = { connect() {}, disconnect() {}, start(at) { this.at = at; }, stop() { this.stopped = true; } };
+      const node = { connect(destination) { this.destination = destination; }, disconnect() {}, start(at) { this.at = at; }, stop() { this.stopped = true; } };
       sources.push(node); return node;
     },
   };
-  const audio = createBrowserAudio({ send: value => controls.push(value), createContext: () => context });
+  const audio = createBrowserAudio({ send: value => controls.push(value), createContext: () => context, createMediaOutput: () => output });
   audio.attach(); audio.control({ type: 'audio-route', playback: true, microphone: false, mediaBufferMillis });
   await new Promise(resolve => setImmediate(resolve));
   function advance(time) {
@@ -116,7 +116,7 @@ test('playback takes ownership only after audio context starts, ACKs PCM and rel
     state: 'suspended', currentTime: 1, destination: {},
     async resume() { this.state = 'running'; }, async close() { this.state = 'closed'; },
     createBuffer(channels, count, rate) { return { channels, count, rate, data: new Float32Array(count), getChannelData() { return this.data; } }; },
-    createBufferSource() { const node = { connect() {}, disconnect() {}, start(at) { this.at = at; }, stop() { this.stopped = true; } }; sources.push(node); return node; },
+    createBufferSource() { const node = { connect(destination) { this.destination = destination; }, disconnect() {}, start(at) { this.at = at; }, stop() { this.stopped = true; } }; sources.push(node); return node; },
   };
   const audio = createBrowserAudio({ send: value => controls.push(value), sendBinary() {}, createContext: () => context,
     onState: value => states.push(value) });
@@ -158,12 +158,46 @@ test('insecure page cannot request a browser microphone; secure capture stops an
   audio.control({ type: 'audio-route', playback: false, microphone: false });
   audio.control({ type: 'audio-route', playback: false, microphone: true });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(requested, 1); assert.equal(audio.microphone, true); assert.equal(track.enabled, false);
+  assert.equal(requested, 0); assert.equal(audio.microphone, true); assert.equal(track.enabled, false);
   audio.control({ type: 'mic-config', id: 42, rate: 16000, channels: 1 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requested, 1);
   assert.equal(track.enabled, true); assert.equal(port.config.rate, 16000);
   port.onmessage({ data: new Int16Array(320).fill(55).buffer });
   assert.equal(new DataView(binaries[0]).getInt32(4, true), 42);
-  audio.control({ type: 'mic-stop', id: 42 }); assert.equal(track.enabled, false);
+  audio.control({ type: 'mic-stop', id: 42 }); assert.equal(stopped, 1);
   audio.control({ type: 'audio-route', playback: false, microphone: false });
   assert.equal(stopped, 1); assert.equal(controls.at(-1).microphone, false);
+});
+
+
+test('real media PCM uses HTML player sink while navigation retains direct output; disconnect releases player', async () => {
+ let starts=0,closes=0;
+ const output={destination:{media:true},async start(){starts++},close(){closes++}};
+ const {audio,context,sources}=await playbackPlayer(500,output);
+ audio.receive(packet([1,2],1,{media:true,stream:7}));
+ audio.receive(packet([1,2],2,{media:false,stream:8}));
+ assert.equal(sources[0].destination,output.destination);
+ assert.equal(sources[1].destination,context.destination);
+ assert.equal(starts,1);audio.close();assert.equal(closes,1);
+});
+
+test('blocked HTML autoplay does not advertise playback readiness', async () => {
+ const output={destination:{},async start(){throw Error('autoplay blocked')},close(){}};
+ const {audio,controls}=await playbackPlayer(500,output);
+ assert.equal(audio.playback,false);
+ assert.ok(controls.some(x=>x.type==='audio-ready'&&!x.playback));audio.close();
+});
+
+test('capture request canceled during permission wait releases late microphone tracks', async () => {
+ let resolve,stopped=0,requested=0;
+ const track={stop(){stopped++}};
+ const context={state:'running',sampleRate:48000,destination:{},audioWorklet:{async addModule(){}},async resume(){},async close(){},createMediaStreamSource(){throw Error('stale capture must not connect')}};
+ const node={port:{postMessage(){}},disconnect(){},connect(){}};
+ const audio=createBrowserAudio({send(){},sendBinary(){throw Error('no stale samples')},secure:()=>true,createContext:()=>context,createWorklet:()=>node,getMicrophone:()=>{requested++;return new Promise(r=>resolve=r)}});
+ audio.attach();audio.control({type:'audio-route',playback:false,microphone:true});
+ await new Promise(r=>setImmediate(r));assert.equal(requested,0);
+ audio.control({type:'mic-config',id:9,rate:16000,channels:1});assert.equal(requested,1);
+ audio.control({type:'mic-stop',id:9});resolve({getTracks:()=>[track],getAudioTracks:()=>[track]});
+ await new Promise(r=>setImmediate(r));assert.equal(stopped,1);assert.equal(audio.microphone,true);audio.close();
 });

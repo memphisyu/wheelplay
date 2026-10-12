@@ -1,9 +1,10 @@
 // Only the current paired browser owns this media session. No commands survive reconnection.
 export function createBrowserMedia({ send, session = globalThis.navigator?.mediaSession,
   Metadata = globalThis.MediaMetadata } = {}) {
+  const diagnostics = { supported: !!session, metadata: null, actions: {}, lastAction: null, error: null };
   let enabled = false, state = null, key = '', registered = false;
   const actions = { play: 'PLAY', pause: 'PAUSE', nexttrack: 'NEXT', previoustrack: 'PREVIOUS' };
-  const attempt = operation => { try { operation(); } catch (_) {} };
+  const attempt = operation => { try { operation(); } catch (error) { diagnostics.error = String(error?.message || error); } };
   function clear() {
     state = null; key = ''; registered = false;
     if (!session) return;
@@ -15,7 +16,7 @@ export function createBrowserMedia({ send, session = globalThis.navigator?.media
     if (!session || !enabled || !state?.available) { clear(); return; }
     if (!registered) {
       for (const [action, command] of Object.entries(actions)) attempt(() => session.setActionHandler(action, () => {
-        if (enabled && state?.available) send({ type: 'media-command', command, generation: state.generation });
+        if (enabled && state?.available) { diagnostics.lastAction = command; diagnostics.actions[command] = (diagnostics.actions[command] || 0) + 1; send({ type: 'media-command', command, generation: state.generation }); }
       }));
       registered = true;
     }
@@ -31,9 +32,10 @@ export function createBrowserMedia({ send, session = globalThis.navigator?.media
     });
   }
   return {
+    diagnostics,
     control(data) {
       if (data.type === 'audio-route') { enabled = !!data.playback; if (!enabled) clear(); else render(); }
-      if (data.type === 'now-playing') { state = data; render(); }
+      if (data.type === 'now-playing') { state = data; diagnostics.metadata = { available: !!data.available, title: data.title, artist: data.artist, playing: data.playing }; render(); }
     },
     clear() { enabled = false; clear(); },
   };

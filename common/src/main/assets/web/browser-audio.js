@@ -31,20 +31,36 @@ export function createMicResampler(inputRate, outputRate, channels, emit) {
   };
 }
 
+// Play real media PCM through an HTML audio element; never add a silent dummy player.
+export function createMediaElementOutput(context) {
+  if (typeof document === 'undefined' || !context.createMediaStreamDestination) return null;
+  const destination = context.createMediaStreamDestination();
+  const element = document.createElement('audio');
+  element.setAttribute('playsinline', ''); element.srcObject = destination.stream;
+  element.hidden = true; document.body.appendChild(element);
+  return {
+    destination,
+    async start() { await element.play(); },
+    close() { element.pause(); element.srcObject = null; element.remove(); destination.disconnect(); destination.stream.getTracks().forEach(t => t.stop()); },
+  };
+}
+
 export function createBrowserAudio({
   send, sendBinary, onState = () => {},
+  createMediaOutput = createMediaElementOutput,
   createContext = () => new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }),
   getMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }),
   createWorklet = context => new AudioWorkletNode(context, 'wheelplay-microphone', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }),
   secure = () => window.isSecureContext && location.protocol === 'https:' && !!navigator.mediaDevices?.getUserMedia,
 } = {}) {
+  let mediaOutput = null;
   let context = null, playback = false, microphone = false, connected = false;
-  let playbackGeneration = 0, microphoneGeneration = 0;
+  let playbackGeneration = 0, microphoneGeneration = 0, captureGeneration = 0;
   let desiredPlayback = false, desiredMicrophone = false, gestureRetry = false;
   let mediaBufferMillis = 300;
   let stream = null, source = null, worklet = null, micId = null, micSequence = 0;
   const streams = new Map(), nodes = new Set();
-  function state(error = '') { onState({ playback, microphone, connected, error }); }
+  function state(error = '') { onState({ playback, microphone, connected, error, captureActive: !!stream, mediaOutput: mediaOutput ? "html-audio" : "web-audio" }); }
   function readyState() { if (connected) send({ type: 'audio-ready', playback, microphone }); }
   async function ready() {
     if (!context) context = createContext();
@@ -58,19 +74,47 @@ export function createBrowserAudio({
     }
     if (id === null) streams.clear(); else streams.delete(id);
   }
-  function stopMicrophone() {
-    micId = null;
-    if (worklet) { worklet.port.postMessage(null); worklet.port.onmessage = null; worklet.disconnect(); }
+  function stopCapture() {
+    ++captureGeneration; micId = null;
+    worklet?.port.postMessage(null); worklet?.disconnect();
     source?.disconnect(); stream?.getTracks().forEach(track => track.stop());
-    worklet = source = stream = null;
+    source = stream = null;
+  }
+  function stopMicrophone() {
+    stopCapture();
+    if (worklet) worklet.port.onmessage = null;
+    worklet = null;
+  }
+  async function startCapture(message) {
+    stopCapture(); const token = captureGeneration; micId = message.id;
+    try {
+      const captured = await getMicrophone();
+      if (captureGeneration !== token || !connected || !microphone) { captured.getTracks().forEach(t => t.stop()); return; }
+      stream = captured;
+      source = context.createMediaStreamSource(captured); source.connect(worklet); worklet.connect(context.destination);
+      worklet.port.postMessage({ rate: message.rate, channels: message.channels });
+      stream.getAudioTracks().forEach(track => { track.enabled = true; track.onended = () => {
+        if (captureGeneration === token) { microphone = false; stopMicrophone(); readyState(); state('麦克风已停止，音频输入已恢复到 Android。'); }
+      }; });
+      state();
+    } catch (error) {
+      if (captureGeneration !== token) return;
+      microphone = false; stopMicrophone(); readyState();
+      state(error.name === 'NotAllowedError' ? '麦克风权限被拒绝，请允许此站点访问麦克风后重试。' : error.message);
+    }
   }
   async function setPlayback(enabled) {
     const token = ++playbackGeneration;
     try {
-      if (enabled) await ready();
+      if (enabled) {
+        const audio = await ready();
+        if (playbackGeneration !== token) return;
+        if (!mediaOutput) mediaOutput = createMediaOutput(audio);
+        if (mediaOutput) await mediaOutput.start();
+      }
       if (playbackGeneration !== token) return;
       playback = enabled;
-      if (!enabled) stopPlayback();
+      if (!enabled) { stopPlayback(); mediaOutput?.close(); mediaOutput = null; }
       readyState(); state();
     } catch (error) { if (playbackGeneration === token) { playback = false; readyState(); state(error.message); } }
   }
@@ -84,20 +128,13 @@ export function createBrowserAudio({
       if (!audio.audioWorklet) throw new Error('此浏览器不支持麦克风音频处理，请使用 Android 麦克风。');
       await audio.audioWorklet.addModule('/audio-worklet.js');
       if (microphoneGeneration !== token) return;
-      const captured = await getMicrophone();
-      if (microphoneGeneration !== token) { captured.getTracks().forEach(track => track.stop()); return; }
-      stream = captured; captured.getAudioTracks().forEach(track => { track.enabled = false; });
-      worklet = createWorklet(audio); source = audio.createMediaStreamSource(captured);
-      source.connect(worklet); worklet.connect(audio.destination);
+      worklet = createWorklet(audio);
       worklet.port.onmessage = event => {
         if (!connected || !microphone || micId === null || microphoneGeneration !== token) return;
         const packet = new Uint8Array(12 + event.data.byteLength), header = new DataView(packet.buffer);
         header.setUint32(0, 0x314d5057, true); header.setInt32(4, micId, true); header.setUint32(8, micSequence++, true);
         packet.set(new Uint8Array(event.data), 12); sendBinary(packet.buffer);
       };
-      captured.getAudioTracks().forEach(track => { track.onended = () => {
-        if (microphoneGeneration === token) { microphone = false; stopMicrophone(); readyState(); state('麦克风已停止，音频输入已恢复到 Android。'); }
-      }; });
       microphone = true; readyState(); state();
     } catch (error) {
       if (microphoneGeneration !== token) return;
@@ -125,7 +162,7 @@ export function createBrowserAudio({
       for (let i = 0; i < count; i++) output[i] = frame.pcm[i * frame.channels + channel] / 32768;
     }
     const node = context.createBufferSource(); node.buffer = audioBuffer; node.stream = frame.stream; node.media = frame.media;
-    node.connect(context.destination); nodes.add(node);
+    node.connect(frame.media && mediaOutput ? mediaOutput.destination : context.destination); nodes.add(node);
     node.onended = () => { nodes.delete(node); node.disconnect(); };
     node.start(next); streams.set(frame.stream, next + count / frame.rate);
     return true;
@@ -146,9 +183,9 @@ export function createBrowserAudio({
       return true;
     }
     if (message.type === 'audio-stop') { stopPlayback(message.stream); return true; }
-    if (message.type === 'audio-reset') { stopPlayback(); micId = null; worklet?.port.postMessage(null); stream?.getAudioTracks().forEach(t => { t.enabled = false; }); return true; }
+    if (message.type === 'audio-reset') { stopPlayback(); stopCapture(); state(); return true; }
     if (message.type === 'mic-stop') {
-      if (message.id === micId) { micId = null; worklet?.port.postMessage(null); stream?.getAudioTracks().forEach(t => { t.enabled = false; }); }
+      if (message.id === micId) { stopCapture(); state(); }
       return true;
     }
     if (message.type !== 'mic-config') return false;
@@ -156,9 +193,7 @@ export function createBrowserAudio({
     if (![1, 2].includes(message.channels) || message.rate < 8000 || message.rate > context.sampleRate) {
       setMicrophone(false); state('此麦克风采样格式不可用，已恢复 Android 输入。'); return true;
     }
-    micId = message.id; micSequence = 0;
-    worklet.port.postMessage({ rate: message.rate, channels: message.channels });
-    stream.getAudioTracks().forEach(track => { track.enabled = true; });
+    micSequence = 0; startCapture(message);
     return true;
   }
   function close() {
@@ -166,6 +201,7 @@ export function createBrowserAudio({
     desiredPlayback = desiredMicrophone = gestureRetry = false;
     mediaBufferMillis = 300;
     stopMicrophone(); stopPlayback();
+    mediaOutput?.close(); mediaOutput = null;
     const old = context; context = null; old?.close().catch(() => {}); state();
   }
   return { receive, control, close,

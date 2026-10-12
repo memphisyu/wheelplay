@@ -503,13 +503,20 @@ if (typeof document !== 'undefined') {
   const pointers = new Map();
   const send = (data, kind) => outbox ? outbox.send(data, kind) : false;
   const browserMedia = createBrowserMedia({ send });
+  let audioDiagnostics = {};
+  $('media-diagnostics').addEventListener('click', () => {
+    $('media-diagnostics-output').textContent = JSON.stringify({ media: browserMedia.diagnostics, audio: audioDiagnostics, secure: window.isSecureContext, browser: navigator.userAgent }, null, 2);
+    $('media-diagnostics-output').hidden = !$('media-diagnostics-output').hidden;
+  });
   const browserAudio = createBrowserAudio({
     send,
     sendBinary: packet => {
       if (socket?.readyState !== WebSocket.OPEN || socket.bufferedAmount > 8192) return false;
       try { socket.send(packet); return true; } catch (_) { return false; }
     },
-    onState: ({ error }) => {
+    onState: status => {
+      audioDiagnostics = status;
+      const { error } = status;
       $('audio-message').textContent = error;
       $('audio-message').hidden = !error || !paired;
     },

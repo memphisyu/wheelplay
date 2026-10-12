@@ -15,7 +15,7 @@ android {
         applicationId = "moe.feng.wheelplay"
         minSdk = 28
         targetSdk = 36
-        versionCode = 23
+        versionCode = 24
         versionName = "0.3.0"
 
     }
@@ -37,7 +37,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".xpengaudio"
-            versionNameSuffix = "-xpeng-audio3-media"
+            versionNameSuffix = "-xpeng-audio4-player"
         }
         release {
             optimization {

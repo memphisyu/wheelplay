@@ -9,7 +9,8 @@
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">等待连接</div><nav><button id="fullscreen" type="button">全屏</button><button id="disconnect" type="button" hidden>断开</button></nav></header>
+<header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">等待连接</div><nav><button id="media-diagnostics" type="button">查看媒体诊断</button><button id="fullscreen" type="button">全屏</button><button id="disconnect" type="button" hidden>断开</button></nav></header>
+<pre id="media-diagnostics-output" hidden style="position:fixed;top:70px;left:5vw;width:90vw;max-height:70vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#111;color:#fff;padding:16px;z-index:100"></pre>
 <main>
 <section id="pairing" aria-labelledby="title">
 <div class="eyebrow">局域网 · 车机显示端</div>

@@ -2,7 +2,9 @@
 
 基于 fython/wheelplay 的 c1badd5711159fe0ae9057773fbc240d0e462191，保留 GPL-3.0 许可与上游归属。修订分支 xpeng，非小鹏官方项目。
 
-三个测试版本依次为：audio1 音频缓冲与小鹏图标；audio2 锁屏连接保护与可恢复的单应用 Root 省电豁免；audio3 浏览器 Media Session 歌曲信息和播放控制。
+测试版本依次为：audio1 音频缓冲与小鹏图标；audio2 锁屏连接保护与可恢复的单应用 Root 省电豁免；audio3 浏览器 Media Session 歌曲信息和播放控制；audio4 媒体音频 HTML 播放器与按需麦克风。
+
+audio4 的真实媒体播放仍使用 audio.srcObject/MediaStream。G9 实测未收到方向盘媒体回调；Media Session API 存在及歌曲元数据可用，不能证明车机已接入媒体会话。
 
 包名 moe.feng.wheelplay.xpengaudio。公开 APK 不包含认证证书、认证私钥或签名密钥。首次使用需在设置中自行导入匹配的 .p7b 证书和 .pk8 私钥；升级已有测试版时，已导入的认证资源仍存于应用数据。
 

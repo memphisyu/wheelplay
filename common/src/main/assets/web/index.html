@@ -11,6 +11,16 @@
 <body>
 <header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">等待连接</div><nav><button id="media-diagnostics" type="button">查看媒体诊断</button><button id="fullscreen" type="button">全屏</button><button id="disconnect" type="button" hidden>断开</button></nav></header>
 <pre id="media-diagnostics-output" hidden style="position:fixed;top:70px;left:5vw;width:90vw;max-height:70vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#111;color:#fff;padding:16px;z-index:100"></pre>
+<section id="media-test-panel" hidden style="position:fixed;top:70px;left:5vw;width:90vw;max-height:80vh;overflow:auto;background:#111;color:#fff;padding:16px;z-index:101">
+<p>停车后测试。普通播放器播放短促测试音，期间暂停 CarPlay 浏览器音频和麦克风；结束后恢复。请先调低音量。</p>
+<button id="probe-start" type="button">开始普通播放器测试</button><button id="probe-stop" type="button">结束测试并恢复 CarPlay</button>
+<label><input id="probe-visible" type="checkbox" checked>显示普通播放器（可取消作对照）</label>
+<audio id="probe-audio" controls playsinline preload="metadata"></audio>
+<p id="media-test-mode" role="status">CarPlay 控制模式：以下按钮控制 iPhone。</p>
+<button data-media-action="previoustrack" type="button">上一首</button><button data-media-action="play" type="button">播放</button><button data-media-action="pause" type="button">暂停</button><button data-media-action="nexttrack" type="button">下一首</button>
+<button id="media-export" type="button">导出诊断 JSON</button><button id="media-panel-close" type="button">收起面板</button>
+<pre id="media-live-output" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+</section>
 <main>
 <section id="pairing" aria-labelledby="title">
 <div class="eyebrow">局域网 · 车机显示端</div>

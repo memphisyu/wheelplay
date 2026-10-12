@@ -1,3 +1,5 @@
+> XPENG G9 experimental fork: see [XPENG.md](XPENG.md) and [media diagnostics guide](docs/XPENG-MEDIA-TEST.md). Public APKs do not bundle authentication credentials.
+
 # WheelPlay
 
 **EN** | [CN](README.zh-CN.md)

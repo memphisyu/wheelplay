@@ -1,3 +1,5 @@
+> 小鹏 G9 修订分支：请先阅读 [XPENG.md](XPENG.md) 和 [媒体控制测试说明](docs/XPENG-MEDIA-TEST.md)。本分支为第三方测试版本，公开 APK 不附带认证资源。
+
 # WheelPlay
 
 [EN](README.md) | **CN**

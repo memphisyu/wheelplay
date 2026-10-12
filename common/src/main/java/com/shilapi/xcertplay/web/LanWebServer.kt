@@ -90,6 +90,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             "/app.js" -> "app.js" to "text/javascript; charset=utf-8"
             "/style.css" -> "style.css" to "text/css; charset=utf-8"
             "/browser-media.js" -> "browser-media.js" to "text/javascript; charset=utf-8"
+            "/media-probe.js" -> "media-probe.js" to "text/javascript; charset=utf-8"
             "/browser-audio.js" -> "browser-audio.js" to "text/javascript; charset=utf-8"
             "/audio-worklet.js" -> "audio-worklet.js" to "text/javascript; charset=utf-8"
             else -> return response(Response.Status.NOT_FOUND, "Not found")
@@ -343,12 +344,25 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                 lastSeen = SystemClock.elapsedRealtime()
                 when (data.getString("type")) {
                     "media-command" -> {
+                        val requestId = data.optLong("requestId", 0)
+                        require(requestId in 0..9_007_199_254_740_991L)
+                        val generation = data.getLong("generation")
+                        fun result(value: String) {
+                            if (viewer === this && !ended.get() && !closing.get() && authorized()) {
+                                reply(WebStreamSender.Control.MEDIA_RESULT,
+                                    JSONObject().put("type", "media-command-result").put("requestId", requestId)
+                                        .put("generation", generation).put("result", value).toString(),
+                                    WebStreamSender.Control.MEDIA_RESULT to requestId)
+                            }
+                        }
                         val command = com.shilapi.xcertplay.media.MediaCommand.valueOf(data.getString("command"))
                         val source = com.shilapi.xcertplay.CarPlayBackgroundSession.snapshot()?.controller
                         val state = source?.mediaSnapshot()
-                        if (state?.available == true && state.connectionGeneration == data.getLong("generation")) {
-                            source.sendMediaCommand(command, state.connectionGeneration)
-                        }
+                        if (state?.available == true && state.connectionGeneration == generation) {
+                            source.sendMediaCommand(command, state.connectionGeneration).whenComplete { outcome, error ->
+                                result(if (error != null) "FAILED" else outcome?.name ?: "FAILED")
+                            }
+                        } else result(if (state?.available == true) "SUPERSEDED" else "UNAVAILABLE")
                     }
                     "audio-ready" -> {
                         val playback = data.getBoolean("playback")

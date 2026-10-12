@@ -57,6 +57,7 @@ export function createBrowserAudio({
   let context = null, playback = false, microphone = false, connected = false;
   let playbackGeneration = 0, microphoneGeneration = 0, captureGeneration = 0;
   let desiredPlayback = false, desiredMicrophone = false, gestureRetry = false;
+  let testMode = false;
   let mediaBufferMillis = 300;
   let stream = null, source = null, worklet = null, micId = null, micSequence = 0;
   const streams = new Map(), nodes = new Set();
@@ -174,6 +175,7 @@ export function createBrowserAudio({
         mediaBufferMillis = nextBufferMillis;
         for (const id of new Set([...nodes].filter(node => node.media).map(node => node.stream))) stopPlayback(id);
       }
+      if (testMode) { desiredPlayback = message.playback === true; desiredMicrophone = message.microphone === true; return true; }
       const nextPlayback = message.playback === true, nextMicrophone = message.microphone === true;
       if (nextPlayback && !playback || nextMicrophone && !microphone) state('如果浏览器阻止自动播放，请点按画面继续。');
       if (desiredPlayback !== nextPlayback) { desiredPlayback = nextPlayback; if (connected) setPlayback(nextPlayback); }
@@ -198,16 +200,23 @@ export function createBrowserAudio({
   }
   function close() {
     playbackGeneration++; microphoneGeneration++; connected = false; microphone = playback = false;
-    desiredPlayback = desiredMicrophone = gestureRetry = false;
+    desiredPlayback = desiredMicrophone = gestureRetry = testMode = false;
     mediaBufferMillis = 300;
     stopMicrophone(); stopPlayback();
     mediaOutput?.close(); mediaOutput = null;
     const old = context; context = null; old?.close().catch(() => {}); state();
   }
   return { receive, control, close,
+    setTestMode(value) {
+      testMode = value; ++playbackGeneration; ++microphoneGeneration;
+      stopMicrophone(); stopPlayback(); mediaOutput?.close(); mediaOutput = null;
+      playback = microphone = false; readyState(); state();
+      if (value) Promise.resolve(context?.suspend?.()).catch(() => {});
+      if (!value && connected) { setPlayback(desiredPlayback); if (desiredMicrophone) setMicrophone(true); }
+    },
     attach() { connected = true; state(); },
     unlock() {
-      if (!connected || gestureRetry) return;
+      if (!connected || testMode || gestureRetry) return;
       gestureRetry = true;
       if (desiredPlayback && !playback) setPlayback(true);
       if (desiredMicrophone && !microphone) setMicrophone(true);

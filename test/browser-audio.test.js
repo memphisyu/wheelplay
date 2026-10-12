@@ -201,3 +201,15 @@ test('capture request canceled during permission wait releases late microphone t
  audio.control({type:'mic-stop',id:9});resolve({getTracks:()=>[track],getAudioTracks:()=>[track]});
  await new Promise(r=>setImmediate(r));assert.equal(stopped,1);assert.equal(audio.microphone,true);audio.close();
 });
+test('probe mode stops CarPlay PCM and blocks gesture restart; exit restores latest route', async () => {
+ const {audio,sources,controls} = await playbackPlayer(500);
+ audio.receive(packet([100],1,{media:true})); assert.equal(sources.length,1);
+ audio.setTestMode(true); assert.equal(sources[0].stopped,true); assert.equal(audio.playback,false);
+ assert.deepEqual(controls.at(-1),{type:'audio-ready',playback:false,microphone:false});
+ audio.unlock(); audio.receive(packet([100],2,{media:true}));
+ await new Promise(resolve=>setImmediate(resolve)); assert.equal(sources.length,1);
+ audio.control({type:'audio-route',playback:true,microphone:false,mediaBufferMillis:500});
+ audio.setTestMode(false); await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(audio.playback,true); audio.receive(packet([100],3,{media:true})); assert.equal(sources.length,2);
+ audio.close();
+});

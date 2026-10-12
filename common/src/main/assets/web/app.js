@@ -316,6 +316,7 @@ export function createRtcReceiver(video, {
 }
 
 import { createBrowserMedia } from './browser-media.js';
+import { createMediaProbe, mediaCapabilities } from './media-probe.js';
 import { createBrowserAudio } from './browser-audio.js';
 
 if (typeof document !== 'undefined') {
@@ -504,10 +505,6 @@ if (typeof document !== 'undefined') {
   const send = (data, kind) => outbox ? outbox.send(data, kind) : false;
   const browserMedia = createBrowserMedia({ send });
   let audioDiagnostics = {};
-  $('media-diagnostics').addEventListener('click', () => {
-    $('media-diagnostics-output').textContent = JSON.stringify({ media: browserMedia.diagnostics, audio: audioDiagnostics, secure: window.isSecureContext, browser: navigator.userAgent }, null, 2);
-    $('media-diagnostics-output').hidden = !$('media-diagnostics-output').hidden;
-  });
   const browserAudio = createBrowserAudio({
     send,
     sendBinary: packet => {
@@ -521,6 +518,52 @@ if (typeof document !== 'undefined') {
       $('audio-message').hidden = !error || !paired;
     },
   });
+  const keyboardEvents = [];
+  const probe = createMediaProbe({ element: $('probe-audio'),
+    onEnter() { browserMedia.suspend(true); browserAudio.setTestMode(true); },
+    onExit() { browserMedia.suspend(false); browserAudio.setTestMode(false); },
+  });
+  function diagnosticSnapshot() {
+    browserMedia.expire();
+    return { version: 'audio5-media-probe', at: new Date().toISOString(),
+      media: browserMedia.diagnostics, audio: audioDiagnostics, probe: probe.snapshot(),
+      capabilities: mediaCapabilities(window, $('probe-audio')), keyboard: keyboardEvents,
+      secure: window.isSecureContext, browser: navigator.userAgent };
+  }
+  function refreshMediaPanel() {
+    if ($('media-test-panel').hidden) return;
+    $('media-test-mode').textContent = probe.active ? '普通播放器测试模式：以下按钮切换测试音；请同时测试方向盘。' : 'CarPlay 控制模式：以下按钮控制 iPhone。SENT 仅表示命令已发送，请观察实际切歌。';
+    $('probe-start').disabled = !paired || probe.active;
+    $('probe-stop').disabled = !probe.active;
+    document.querySelectorAll('[data-media-action]').forEach(button => {
+      button.disabled = !probe.active && (!paired || !audioDiagnostics.playback || !browserMedia.diagnostics.metadata?.available);
+    });
+    $('media-live-output').textContent = JSON.stringify(diagnosticSnapshot(), null, 2);
+  }
+  $('media-diagnostics').addEventListener('click', () => {
+    $('media-test-panel').hidden = !$('media-test-panel').hidden; refreshMediaPanel();
+  });
+  $('media-panel-close').addEventListener('click', () => { $('media-test-panel').hidden = true; });
+  $('probe-start').addEventListener('click', () => { if (paired) probe.start(); refreshMediaPanel(); });
+  $('probe-stop').addEventListener('click', () => { probe.stop(); refreshMediaPanel(); });
+  $('probe-visible').addEventListener('change', () => { $('probe-audio').hidden = !$('probe-visible').checked; });
+  const mediaCommands = { play: 'PLAY', pause: 'PAUSE', nexttrack: 'NEXT', previoustrack: 'PREVIOUS' };
+  document.querySelectorAll('[data-media-action]').forEach(button => button.addEventListener('click', () => {
+    const action = button.dataset.mediaAction;
+    if (probe.active) probe.action(action); else browserMedia.command(mediaCommands[action]);
+    refreshMediaPanel();
+  }));
+  document.addEventListener('keydown', event => {
+    if ($('media-test-panel').hidden) return;
+    keyboardEvents.push({ at: Date.now(), key: event.key, code: event.code, repeat: event.repeat });
+    if (keyboardEvents.length > 40) keyboardEvents.shift();
+  });
+  $('media-export').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(diagnosticSnapshot(), null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = `WheelPlay-media-${Date.now()}.json`;
+    document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  setInterval(refreshMediaPanel, 500);
   document.addEventListener('pointerdown', () => browserAudio.unlock(), { capture: true });
   $('secure-setup').addEventListener('toggle', async () => {
     if (!$('secure-setup').open) return;
@@ -609,7 +652,7 @@ if (typeof document !== 'undefined') {
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
     cleanupRtc(); cleanupImage(); setLive(false);
-    browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
+    probe.stop('disconnect'); browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     $('disconnect').hidden = true; $('connect').disabled = false;
     $('status').textContent = '已断开';
@@ -726,7 +769,7 @@ if (typeof document !== 'undefined') {
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
       socket = null; pointers.clear(); clearInterval(heartbeat); cleanupRtc(); cleanupImage(); setLive(false);
-      browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
+      probe.stop('disconnect'); browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
       if (stopped) return;
       if (!paired || ++attempts > 8) {
         disconnect(); $('status').textContent = '连接未成功';

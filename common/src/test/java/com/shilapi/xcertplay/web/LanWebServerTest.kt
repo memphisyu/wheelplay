@@ -322,6 +322,23 @@ class LanWebServerTest {
         finally { WebSession.stop() }
     }
 
+    @Test fun mediaCommandReturnsCorrelatedUnavailableResultWithoutPhoneAndServesProbe() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            assertTrue(URL("http://127.0.0.1:8080/media-probe.js").readText().contains("createProbeWav"))
+            handshake(WebSession.code).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                text(client, "{\"type\":\"media-command\",\"command\":\"NEXT\",\"generation\":7,\"requestId\":3}")
+                val result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertEquals("media-command-result", result.getString("type"))
+                assertEquals(3, result.getInt("requestId"))
+                assertEquals(7, result.getInt("generation"))
+                assertEquals("UNAVAILABLE", result.getString("result"))
+            }
+        } finally { WebSession.stop() }
+    }
+
     @Test fun cachedFrameBusyReplyHeartbeatAndProtocolControlsUseTheAsyncWriter() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
         try {

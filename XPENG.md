@@ -1,15 +1,16 @@
 # WheelPlay 小鹏修订版
 
-当前最新版本为 **audio7 封面测试版**，包名 `moe.feng.wheelplay.xpengaudio`，修订分支 `xpeng`。
+当前最新版本为 **audio8 上游同步测试版**，包名 `moe.feng.wheelplay.xpengaudio`，修订分支 `xpeng`。
 
-## 小鹏修订版：当前版本 audio7
+## 小鹏修订版：当前版本 audio8
 
-[下载 audio7 封面测试版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio7-artwork) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
+[下载 audio8 上游同步测试版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio8-upstream) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
 
 本仓库是 [fython/wheelplay](https://github.com/fython/wheelplay) 的个人修订分支 `xpeng`，主要测试小鹏 G9 的浏览器 CarPlay。APK 安装在 Android 手机／平板上，车机通过同一局域网的浏览器访问。非小鹏或 Apple 官方产品，其他车型、系统版本的兼容性需分别验证。
 
 | 版本 | 改动 | 当前验证情况 |
 | --- | --- | --- |
+| **audio8** / versionCode 28 | 同步上游车厂自定义、日夜模式、定位／麦克风来源、安全区域、浏览器离线策略及热点名称修复；保留 MSE 音乐和封面 | 需要实车回归验证，audio6／audio7 可供回退 |
 | **audio7** / versionCode 27 | 在 audio6 上增加系统媒体控件封面；按需发送 JPEG/PNG，随切歌更新并拒绝迟到旧封面 | 484 项自动测试通过；小鹏车机封面显示待实车验证 |
 | **audio6** / versionCode 26 | 音乐通过 FLAC/MP4＋MSE 的真实媒体播放器播放，接入浏览器 Media Session | 用户在 G9 实测确认方向盘上一首／下一首和系统媒体控件歌曲信息显示正常 |
 | audio1–audio5 | 音频缓冲、锁屏连接保护、按需麦克风、媒体控制和诊断工具 | 历史测试版本，保留供对照 |
@@ -19,7 +20,7 @@
 1. 在 Release 下载 `.apk` 并安装到 Android 服务设备。同一包名与签名可覆盖安装；建议保留原应用数据。
 2. **公开 APK 不内置 CarPlay 认证身份。** 首次使用须在「CarPlay 认证资源」中导入有效资源；已有测试版导入的资源及 HTTPS 设置可保留。详见 [认证资源导入说明](docs/AUTHENTICATION_IMPORT.md)。
 3. Android 设备与车机接入同一可互访局域网，连接 iPhone，在车机浏览器打开 App 显示的地址并完成配对。
-4. 开启「声音转发到浏览器」。首次验证先关闭「使用浏览器麦克风」，点按页面允许播放音乐。
+4. audio8 在「设置 → 画面与音频」将「音频输出」选为「车机浏览器」，首次测试将「麦克风来源」选为「Android 麦克风」或「禁用麦克风」，点按页面允许播放音乐。修改麦克风来源需重新连接。浏览器离线策略建议先保持默认「保持 CarPlay 连接」。
 5. **升级后关闭旧车机标签再重新打开页面。** 在「查看媒体诊断」中确认 `audio.mediaOutput` 为 `mse-flac`；若为 `web-audio`，说明已使用降级路径。
 6. 测试歌曲信息、方向盘切歌、播放／暂停及封面。audio7 可检查 `media.artwork.available`：为 `true` 表示浏览器收到可用封面并尝试交给媒体会话，不保证车机控件一定显示。异常时导出诊断 JSON，附车型、系统版本、音乐 App 和复现步骤。
 

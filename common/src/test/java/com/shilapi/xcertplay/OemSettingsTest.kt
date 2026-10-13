@@ -55,11 +55,11 @@ class OemSettingsTest {
 
     @Test fun legacyDefaultMigratesOnceAndExplicitBydSurvivesReload() {
         context.getSharedPreferences("xcertplay_airplay", 0).edit().putString("oem_label", "BYD").commit()
-        assertEquals("NIO", AirPlayPersistence.loadSimulatedManufacturerName(context))
+        assertEquals("XPENG", AirPlayPersistence.loadSimulatedManufacturerName(context))
         AirPlayPersistence.saveSimulatedManufacturerName(context, " BYD ")
         repeat(2) { assertEquals("BYD", AirPlayPersistence.loadSimulatedManufacturerName(context)) }
         AirPlayPersistence.saveSimulatedManufacturerName(context, "   ")
-        assertEquals("NIO", AirPlayPersistence.loadSimulatedManufacturerName(context))
+        assertEquals("XPENG", AirPlayPersistence.loadSimulatedManufacturerName(context))
     }
 
     @Test fun interruptedIconWriteRecoversLastCompleteImageAndResetRemovesIt() {
@@ -149,7 +149,7 @@ class OemSettingsTest {
         button(activity, "恢复默认名称与图标").performClick()
         (ShadowDialog.getLatestDialog() as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         shadowOf(android.os.Looper.getMainLooper()).idle()
-        assertEquals("NIO", AirPlayPersistence.loadSimulatedManufacturerName(context))
+        assertEquals("XPENG", AirPlayPersistence.loadSimulatedManufacturerName(context))
         assertNull(AirPlayPersistence.loadCustomAirPlayIconFile(context))
         controller.pause().stop().destroy()
     }

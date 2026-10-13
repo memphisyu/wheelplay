@@ -6,14 +6,15 @@ WheelPlay is an Android-hosted CarPlay server for local networks. It streams you
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
 
-## XPENG fork: latest audio7
+## XPENG fork: latest audio8
 
-[Download audio7 artwork test build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio7-artwork) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-audio7)
+[Download audio8 upstream sync test build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio8-upstream) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-audio8)
 
 This personal `xpeng` fork of [fython/wheelplay](https://github.com/fython/wheelplay) runs on an Android phone/tablet and serves CarPlay to the car browser over a local network. It is independent of XPENG and Apple.
 
 | Version | Changes | Validation |
 | --- | --- | --- |
+| **audio8**, versionCode 28 | Syncs upstream OEM customization, appearance, location/microphone sources, safe margins, offline policy and hotspot SSID fixes; retains MSE music and artwork | Vehicle regression testing required |
 | **audio7**, versionCode 27 | Adds JPEG/PNG album artwork to browser MediaMetadata; track-bound requests and stale-cover rejection | 484 automated tests passed; G9 artwork display still needs vehicle testing |
 | **audio6**, versionCode 26 | FLAC-in-fragmented-MP4 music playback through MSE and browser Media Session | User confirmed steering-wheel track skipping and system song information on a G9 |
 | audio1–audio5 | Buffering, lock-screen protection, microphone and media diagnostics | Historical test builds |

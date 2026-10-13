@@ -672,7 +672,7 @@ class DiPlayActivity : AppCompatActivity() {
             addView(preview, LinearLayout.LayoutParams(dp(72), dp(72)))
             addView(column().apply {
                 addView(label(name, 20, TEXT, true))
-                addView(label(if (custom != null) "自定义图标" else "默认 NIO 图标", 14, MUTED))
+                addView(label(if (custom != null) "自定义图标" else "默认 XPENG 图标", 14, MUTED))
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(16) })
         }
         card.addView(row)

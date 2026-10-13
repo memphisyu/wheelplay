@@ -1,5 +1,3 @@
-> XPENG G9 experimental fork: see [XPENG.md](XPENG.md) and [media diagnostics guide](docs/XPENG-MEDIA-TEST.md). Public APKs do not bundle authentication credentials.
-
 # WheelPlay
 
 **EN** | [CN](README.zh-CN.md)
@@ -7,6 +5,28 @@
 WheelPlay is an Android-hosted CarPlay server for local networks. It streams your iPhone's CarPlay display to your car's browser and lets you control it through the car's touchscreen.
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
+
+## XPENG fork: latest audio7
+
+[Download audio7 artwork test build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio7-artwork) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-audio7)
+
+This personal `xpeng` fork of [fython/wheelplay](https://github.com/fython/wheelplay) runs on an Android phone/tablet and serves CarPlay to the car browser over a local network. It is independent of XPENG and Apple.
+
+| Version | Changes | Validation |
+| --- | --- | --- |
+| **audio7**, versionCode 27 | Adds JPEG/PNG album artwork to browser MediaMetadata; track-bound requests and stale-cover rejection | 484 automated tests passed; G9 artwork display still needs vehicle testing |
+| **audio6**, versionCode 26 | FLAC-in-fragmented-MP4 music playback through MSE and browser Media Session | User confirmed steering-wheel track skipping and system song information on a G9 |
+| audio1–audio5 | Buffering, lock-screen protection, microphone and media diagnostics | Historical test builds |
+
+Install the Release APK on the Android host. Public APKs contain no accessory authentication identity: import your own valid resources on first use; updates with the same package/signature retain existing app data. Connect the host and car to a mutually reachable LAN, pair the browser, and enable browser audio. First test with browser microphone disabled. After upgrading, close the old browser tab and reopen the page, then tap to allow playback.
+
+Check `audio.mediaOutput` in media diagnostics: `mse-flac` indicates the new path; `web-audio` indicates fallback. In audio7, `media.artwork.available` indicates receipt of a usable cover and attempted Media Session publication, not proof that the car displays it. Test the system media card and steering-wheel controls and export diagnostics if needed.
+
+Wireless input is typically AAC, decoded on Android to PCM before browser FLAC/MP4 framing; **AAC passthrough is not implemented**. Supported music is 44.1/48 kHz mono/stereo; navigation/calls retain Web Audio. Unsupported FLAC MSE or decoding errors fall back to Web Audio. Microphone input needs trusted HTTPS; a publicly trusted certificate for your own hostname can avoid installing a CA on the car. Certificate name and LAN DNS must match the address used. Microphone-related vehicle audio routing still needs separate testing.
+
+Each Release includes an APK, corresponding source ZIP and SHA-256 checksums. Authentication identities, TLS private keys and Android signing keys are excluded. FLAC framing adapts [DashPlay](https://github.com/yizhixiaoheigou/DashPlay) under GPL-3.0; see [attribution](docs/DASHPLAY-NOTICE.md).
+
+[XPENG notes](XPENG.md) · [MSE test guide](docs/XPENG-AUDIO6-MSE.md) · [artwork test guide](docs/XPENG-AUDIO7-ARTWORK.md) · [authentication import](docs/AUTHENTICATION_IMPORT.md)
 
 ## Features
 
@@ -50,7 +70,7 @@ Settings → Web listeners (Web 监听) contains the HTTP port (default `8080`),
 
 - The server device requires Android 9 or later. The car's browser must support modern web features and touch interaction.
 - The server device and car must be able to reach each other over the local network. Wireless connection compatibility depends on the devices' networking capabilities.
-- Android handles audio and microphone input by default; browser routing must be enabled manually. Browser microphone input also requires the car's browser to allow installing and trusting a local certificate.
+- Android handles audio and microphone input by default; browser routing must be enabled manually. Browser microphone input requires a trusted HTTPS origin, using a publicly trusted hostname certificate or an installed trusted local CA.
 - Only one browser control session is allowed at a time.
 - Streaming smoothness and connection stability depend on device performance, network quality, and system background restrictions.
 - Use only on trusted local networks. HTTP pairing, WebSocket control, and JPEG transport are unencrypted; WebRTC video uses DTLS-SRTP. Browser microphone input uses local HTTPS/WSS. Do not bypass certificate warnings or expose the service to the public internet.

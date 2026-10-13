@@ -1,17 +1,45 @@
 # WheelPlay 小鹏修订版
 
-基于 fython/wheelplay 的 c1badd5711159fe0ae9057773fbc240d0e462191，保留 GPL-3.0 许可与上游归属。修订分支 xpeng，非小鹏官方项目。
+当前最新版本为 **audio7 封面测试版**，包名 `moe.feng.wheelplay.xpengaudio`，修订分支 `xpeng`。
 
-测试版本依次为：audio1 音频缓冲与小鹏图标；audio2 锁屏连接保护与可恢复的单应用 Root 省电豁免；audio3 浏览器 Media Session 歌曲信息和播放控制；audio4 媒体音频 HTML 播放器与按需麦克风；audio5 普通播放器对照、网页媒体按钮、服务端回执和诊断导出。
+## 小鹏修订版：当前版本 audio7
 
-audio4 的真实媒体播放仍使用 audio.srcObject/MediaStream。G9 实测未收到方向盘媒体回调；Media Session API 存在及歌曲元数据可用，不能证明车机已接入媒体会话。
+[下载 audio7 封面测试版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio7-artwork) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
 
-包名 moe.feng.wheelplay.xpengaudio。公开 APK 不包含认证证书、认证私钥或签名密钥。首次使用需在设置中自行导入匹配的 .p7b 证书和 .pk8 私钥；升级已有测试版时，已导入的认证资源仍存于应用数据。
+本仓库是 [fython/wheelplay](https://github.com/fython/wheelplay) 的个人修订分支 `xpeng`，主要测试小鹏 G9 的浏览器 CarPlay。APK 安装在 Android 手机／平板上，车机通过同一局域网的浏览器访问。非小鹏或 Apple 官方产品，其他车型、系统版本的兼容性需分别验证。
 
-音频建议先选 500ms，必要时比较 1000ms。车机与接收端需在同一局域网。每次升级后关闭旧车机网页并重新打开，避免旧脚本缓存。
+| 版本 | 改动 | 当前验证情况 |
+| --- | --- | --- |
+| **audio7** / versionCode 27 | 在 audio6 上增加系统媒体控件封面；按需发送 JPEG/PNG，随切歌更新并拒绝迟到旧封面 | 484 项自动测试通过；小鹏车机封面显示待实车验证 |
+| **audio6** / versionCode 26 | 音乐通过 FLAC/MP4＋MSE 的真实媒体播放器播放，接入浏览器 Media Session | 用户在 G9 实测确认方向盘上一首／下一首和系统媒体控件歌曲信息显示正常 |
+| audio1–audio5 | 音频缓冲、锁屏连接保护、按需麦克风、媒体控制和诊断工具 | 历史测试版本，保留供对照 |
 
-构建：Android SDK 36、NDK 28.2.13676358、JDK 21，运行 ./gradlew :mobile:assembleDebug :common:testDebugUnitTest :shared:testDebugUnitTest；Node 测试运行 node --test test/*.test.js。签名密钥需自行保管，使用不同密钥无法覆盖已安装版本。
+### 安装与实车测试
 
-实机反馈：用户在小鹏 G9 上发现原音频缓冲问题与车机媒体控制缺失。锁屏保护和浏览器媒体控制的改善效果仍需实机验证，不将测试功能宣称为已完成车机适配。
+1. 在 Release 下载 `.apk` 并安装到 Android 服务设备。同一包名与签名可覆盖安装；建议保留原应用数据。
+2. **公开 APK 不内置 CarPlay 认证身份。** 首次使用须在「CarPlay 认证资源」中导入有效资源；已有测试版导入的资源及 HTTPS 设置可保留。详见 [认证资源导入说明](docs/AUTHENTICATION_IMPORT.md)。
+3. Android 设备与车机接入同一可互访局域网，连接 iPhone，在车机浏览器打开 App 显示的地址并完成配对。
+4. 开启「声音转发到浏览器」。首次验证先关闭「使用浏览器麦克风」，点按页面允许播放音乐。
+5. **升级后关闭旧车机标签再重新打开页面。** 在「查看媒体诊断」中确认 `audio.mediaOutput` 为 `mse-flac`；若为 `web-audio`，说明已使用降级路径。
+6. 测试歌曲信息、方向盘切歌、播放／暂停及封面。audio7 可检查 `media.artwork.available`：为 `true` 表示浏览器收到可用封面并尝试交给媒体会话，不保证车机控件一定显示。异常时导出诊断 JSON，附车型、系统版本、音乐 App 和复现步骤。
 
-最新建议：优先安装 audio5 预发布诊断版。它用于定位车机媒体接管和 iPhone 命令链路问题，尚未修复 G9 方向盘。实车操作见 [媒体控制测试说明](docs/XPENG-MEDIA-TEST.md)。真实 CarPlay 媒体仍使用 MediaStream；下一阶段编码音频流需依据实车结果决定。
+[音频与方向盘测试说明](docs/XPENG-AUDIO6-MSE.md) · [封面测试说明](docs/XPENG-AUDIO7-ARTWORK.md) · [历史媒体诊断说明](docs/XPENG-MEDIA-TEST.md)
+
+### 音频与 HTTPS
+
+当前音乐路径是「iPhone 音频 → Android 解码为 PCM → 浏览器封装为 FLAC/MP4 → MSE 播放」。无线 CarPlay 输入通常为 AAC，**本版尚未实现 AAC 直通**；FLAC 封装不会增加已解码 PCM 的损失。44.1/48 kHz、单／双声道音乐使用该路径；导航、通话维持 Web Audio。不支持 FLAC MSE 或播放解码失败时降级 Web Audio，媒体控件兼容性可能随之变化。
+
+浏览器麦克风需要可信 HTTPS 和浏览器授权，按需在 Siri／语音输入期间采集。G9 没有证书安装入口时，可使用自己域名对应的浏览器受信任服务器证书，并通过该域名访问；域名解析需指向 Android 设备当前局域网 IP。证书须匹配访问域名，使用 `.p12` 时选择 **PKCS#12** 导入类型。详见 [浏览器音频与证书配置](docs/BROWSER_AUDIO.md)。麦克风开启后的车机音量通道、通话及 Siri 行为仍需单独验证。
+
+FLAC/MP4 封装参考 [DashPlay](https://github.com/yizhixiaoheigou/DashPlay)，保留 GPL-3.0 许可与 [来源说明](docs/DASHPLAY-NOTICE.md)。本项目 APK 为 Android 应用，与 DashPlay 的 OpenWrt `.apk` 软件包不同。每个 Release 附 APK、对应源码 ZIP 和 SHA-256 文件；认证身份、HTTPS 私钥及 Android 签名密钥不进入公开源码或附件。
+
+## 开发验证
+
+基于上游 c1badd5711159fe0ae9057773fbc240d0e462191，保留上游许可与归属。构建使用 Android SDK 36、NDK 28.2.13676358、JDK 21。
+
+```sh
+./gradlew :mobile:assembleDebug :common:testDebugUnitTest :shared:testDebugUnitTest
+node --test test/*.test.js
+```
+
+音频封装测试需要 ffmpeg。签名密钥自行保管；不同签名无法覆盖已有安装。锁屏保护和 Root 省电豁免不能保证所有 Android 系统后台策略下都不断连。

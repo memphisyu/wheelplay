@@ -7,6 +7,10 @@ import android.os.Looper
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
 import com.shilapi.xcertplay.DiPlayBootstrap
+import com.shilapi.xcertplay.CarPlayMicrophoneSource
+import com.shilapi.xcertplay.CarPlayAppearance
+import com.shilapi.xcertplay.BrowserOfflinePolicy
+import com.shilapi.xcertplay.isDarkMode
 import java.security.SecureRandom
 
 /** Service-owned web endpoint; media sinks only publish immutable latest frames. */
@@ -54,6 +58,51 @@ internal object WebSession {
     val hasViewer get() = server?.hasViewer == true || secureServer?.hasViewer == true
     val audio = BrowserAudioBridge()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var experienceContext: Context? = null
+    private var offlineSubscription: AutoCloseable? = null
+    private val preferenceExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+        Thread(task, "carplay-preferences").apply { isDaemon = true }
+    }
+    private val offlineMonitor = BrowserOfflineMonitor(mainHandler,
+        { CarPlayBackgroundSession.snapshot()?.controller }, { hasViewer }) { expected ->
+        if (experienceContext != null && CarPlayBackgroundSession.snapshot()?.controller === expected) {
+            CarPlayBackgroundSession.stop { stage = "浏览器离线超时，iPhone 已断开" }
+        }
+    }
+
+    fun viewerStateChanged() {
+        val refresh = {
+            experienceContext?.let { offlineMonitor.refresh(AirPlayPersistence.loadBrowserOfflinePolicy(it).timeoutMillis) }
+            Unit
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) refresh() else mainHandler.post { refresh() }
+    }
+
+    fun setBrowserOfflinePolicy(context: Context, value: BrowserOfflinePolicy) {
+        AirPlayPersistence.saveBrowserOfflinePolicy(context, value)
+        viewerStateChanged()
+    }
+
+    fun setAppearance(context: Context, value: CarPlayAppearance) {
+        AirPlayPersistence.saveAppearance(context, value)
+        refreshAppearance(context)
+    }
+
+    fun refreshAppearance(context: Context) {
+        val controller = CarPlayBackgroundSession.snapshot()?.controller ?: return
+        preferenceExecutor.execute {
+            if (CarPlayBackgroundSession.snapshot()?.controller === controller) {
+                val night = AirPlayPersistence.loadAppearance(context).night(isDarkMode(context.resources.configuration.uiMode))
+                controller.setNightMode(night)
+            }
+        }
+    }
+
+    private fun configureAudio(context: Context) {
+        val source = AirPlayPersistence.loadMicrophoneSource(context)
+        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context), source == CarPlayMicrophoneSource.BROWSER,
+            AirPlayPersistence.loadMediaBufferMillis(context), source != CarPlayMicrophoneSource.DISABLED)
+    }
     private var phoneConnectHandler: (() -> String)? = null
     private var lastPhoneConnectAt: Long? = null
 
@@ -115,13 +164,14 @@ internal object WebSession {
             return
         }
         adaptiveBrowserSize = AirPlayPersistence.loadAdaptiveBrowserSize(context)
-        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
-            AirPlayPersistence.loadBrowserMicrophone(context), AirPlayPersistence.loadMediaBufferMillis(context))
+        configureAudio(context)
         code = (100000 + SecureRandom().nextInt(900000)).toString()
         val port = WebListenSettings.httpPort(context)
         val next = LanWebServer(context.applicationContext, code, port)
         try {
             next.start(5000, true); server = next; httpPort = port; error = null
+            experienceContext = context.applicationContext
+            offlineSubscription = CarPlayBackgroundSession.subscribe { viewerStateChanged() }
             httpsPort = WebListenSettings.httpsPort(context)
             tlsError = null
             TeslaHttpCompatibility.start(context)
@@ -281,20 +331,21 @@ internal object WebSession {
 
     @Synchronized fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
         AirPlayPersistence.saveBrowserAudioPlayback(context, enabled)
-        audio.configure(enabled, AirPlayPersistence.loadBrowserMicrophone(context),
-            AirPlayPersistence.loadMediaBufferMillis(context))
+        configureAudio(context)
     }
 
     @Synchronized fun setBrowserMicrophone(context: Context, enabled: Boolean) {
-        AirPlayPersistence.saveBrowserMicrophone(context, enabled)
-        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context), enabled,
-            AirPlayPersistence.loadMediaBufferMillis(context))
+        setMicrophoneSource(context, if (enabled) CarPlayMicrophoneSource.BROWSER else CarPlayMicrophoneSource.ANDROID)
+    }
+
+    @Synchronized fun setMicrophoneSource(context: Context, source: CarPlayMicrophoneSource) {
+        AirPlayPersistence.saveMicrophoneSource(context, source)
+        configureAudio(context)
     }
 
     @Synchronized fun setMediaBufferMillis(context: Context, millis: Int) {
         AirPlayPersistence.saveMediaBufferMillis(context, millis)
-        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
-            AirPlayPersistence.loadBrowserMicrophone(context), AirPlayPersistence.loadMediaBufferMillis(context))
+        configureAudio(context)
     }
 
     fun setAdaptiveBrowserSize(enabled: Boolean) {
@@ -343,6 +394,10 @@ internal object WebSession {
         generation++; frame = null; videoActive = false
     } }
     @Synchronized fun stop() {
+        experienceContext = null
+        offlineSubscription?.close(); offlineSubscription = null
+        if (Looper.myLooper() == Looper.getMainLooper()) offlineMonitor.close()
+        else mainHandler.post { if (experienceContext == null) offlineMonitor.close() }
         serverGeneration++
         TeslaHttpCompatibility.stop()
         val oldSecure = secureServer; secureServer = null

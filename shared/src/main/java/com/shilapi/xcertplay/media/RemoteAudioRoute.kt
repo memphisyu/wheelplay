@@ -6,6 +6,8 @@ import java.io.Closeable
 
 /** Optional remote endpoint. All PCM is signed 16-bit little-endian. */
 interface RemoteAudioRoute : Closeable {
+    /** False blocks both remote input and local microphone fallback. */
+    val microphoneEnabled: Boolean get() = true
     /** True transfers playback ownership to the endpoint; false keeps local playback. */
     fun output(type: Int, format: AudioFormat, pcm: ByteArray, offset: Int, length: Int): Boolean
     val playbackAvailable: Boolean get() = false

@@ -182,6 +182,7 @@ class CarPlayController(
     override fun subscribeMediaState(listener: (NowPlayingState) -> Unit) = mediaState.subscribe(listener)
     override fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long?) = mediaState.send(command, connectionGeneration)
     override fun seekTo(positionMs: Long) = mediaState.seekTo(positionMs)
+    fun setNightMode(night: Boolean): Boolean = activeSession?.setNightMode(night) ?: false
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val touchExecutor: ExecutorService = Executors.newSingleThreadExecutor()

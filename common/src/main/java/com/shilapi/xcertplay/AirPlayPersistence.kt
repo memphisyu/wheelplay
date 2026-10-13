@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.os.Build
+import android.util.AtomicFile
 import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.AirPlayPhysicalSizeBasis
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
@@ -51,6 +52,7 @@ object AirPlayPersistence {
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
     private const val KEY_OEM_LABEL = "oem_label"
+    private const val KEY_OEM_LABEL_MIGRATED = "oem_label_migrated"
     private const val KEY_FPS = "display_fps"
     private const val KEY_STREAM_TECHNOLOGY = "web_stream_technology"
     private const val KEY_RTC_RECOVERY = "web_rtc_recovery"
@@ -65,6 +67,10 @@ object AirPlayPersistence {
     private const val KEY_ADAPTIVE_BROWSER_SIZE = "adaptive_browser_size"
     private const val KEY_BROWSER_AUDIO_PLAYBACK = "browser_audio_playback"
     private const val KEY_BROWSER_MICROPHONE = "browser_microphone"
+    private const val KEY_MICROPHONE_SOURCE = "microphone_source"
+    private const val KEY_APPEARANCE = "carplay_appearance"
+    private const val KEY_BROWSER_OFFLINE = "browser_offline_policy"
+    private const val KEY_SAFE_MARGINS = "carplay_safe_margins"
     private const val KEY_SAFE_AREA_DRAW_OUTSIDE = "safe_area_draw_outside"
     private const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
     private const val KEY_LOCATION_REPORTING_ENABLED = "location_reporting_enabled"
@@ -87,12 +93,40 @@ object AirPlayPersistence {
             .putBoolean(KEY_BROWSER_AUDIO_PLAYBACK, enabled).apply()
     }
 
-    fun loadBrowserMicrophone(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_BROWSER_MICROPHONE, false)
+    fun loadBrowserMicrophone(context: Context): Boolean = loadMicrophoneSource(context) == CarPlayMicrophoneSource.BROWSER
 
     fun saveBrowserMicrophone(context: Context, enabled: Boolean) {
+        saveMicrophoneSource(context, if (enabled) CarPlayMicrophoneSource.BROWSER else CarPlayMicrophoneSource.ANDROID)
+    }
+
+    fun loadMicrophoneSource(context: Context): CarPlayMicrophoneSource {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return CarPlayMicrophoneSource.entries.firstOrNull { it.name == prefs.getString(KEY_MICROPHONE_SOURCE, null) }
+            ?: if (prefs.getBoolean(KEY_BROWSER_MICROPHONE, false)) CarPlayMicrophoneSource.BROWSER else CarPlayMicrophoneSource.ANDROID
+    }
+
+    fun saveMicrophoneSource(context: Context, source: CarPlayMicrophoneSource) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_BROWSER_MICROPHONE, enabled).apply()
+            .putString(KEY_MICROPHONE_SOURCE, source.name)
+            .putBoolean(KEY_BROWSER_MICROPHONE, source == CarPlayMicrophoneSource.BROWSER).apply()
+    }
+
+    fun loadAppearance(context: Context): CarPlayAppearance = CarPlayAppearance.entries.firstOrNull {
+        it.name == context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_APPEARANCE, null)
+    } ?: CarPlayAppearance.SYSTEM
+    fun saveAppearance(context: Context, value: CarPlayAppearance) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_APPEARANCE, value.name).apply()
+    }
+    fun loadBrowserOfflinePolicy(context: Context): BrowserOfflinePolicy = BrowserOfflinePolicy.entries.firstOrNull {
+        it.name == context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_BROWSER_OFFLINE, null)
+    } ?: BrowserOfflinePolicy.KEEP
+    fun saveBrowserOfflinePolicy(context: Context, value: BrowserOfflinePolicy) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_BROWSER_OFFLINE, value.name).apply()
+    }
+    fun loadSafeMargins(context: Context): CarPlaySafeMargins? = CarPlaySafeMargins.decode(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SAFE_MARGINS, null))
+    fun saveSafeMargins(context: Context, value: CarPlaySafeMargins) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_SAFE_MARGINS, value.encode()).apply()
     }
 
     fun loadDisplayScaleTenths(context: Context): Int {
@@ -344,22 +378,22 @@ object AirPlayPersistence {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_OEM_LABEL, null)
         // Upgrade the previous default once, while allowing users to choose BYD again later.
-        if (stored == "BYD") {
-            prefs.edit().putString(KEY_OEM_LABEL, DEFAULT_SIMULATED_MANUFACTURER_NAME).apply()
-            return DEFAULT_SIMULATED_MANUFACTURER_NAME
-        }
+        val legacyDefault = stored == "BYD" && !prefs.getBoolean(KEY_OEM_LABEL_MIGRATED, false)
         // iOS hides the car icon without a label.
-        val name = stored?.takeIf { it.isNotBlank() }
+        val name = (if (legacyDefault) DEFAULT_SIMULATED_MANUFACTURER_NAME else stored)?.trim()?.takeIf { it.isNotBlank() }
             ?: prefs.getString(KEY_MANUFACTURER, null)
                 ?.takeIf { it.isNotBlank() && it != "WheelPlay" && it != "DiPlay" && it != "DiPlay Web" }
             ?: DEFAULT_SIMULATED_MANUFACTURER_NAME
-        if (stored == null) prefs.edit().putString(KEY_OEM_LABEL, name).apply()
+        if (stored != name || !prefs.getBoolean(KEY_OEM_LABEL_MIGRATED, false)) {
+            prefs.edit().putString(KEY_OEM_LABEL, name).putBoolean(KEY_OEM_LABEL_MIGRATED, true).apply()
+        }
         return name
     }
 
     fun saveSimulatedManufacturerName(context: Context, name: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_OEM_LABEL, name.trim().ifBlank { DEFAULT_SIMULATED_MANUFACTURER_NAME })
+            .putBoolean(KEY_OEM_LABEL_MIGRATED, true)
             .apply()
     }
 
@@ -503,6 +537,7 @@ object AirPlayPersistence {
 
     fun loadSafeAreaRect(context: Context, widthPixels: Int, heightPixels: Int): SafeAreaRect? {
         require(widthPixels > 0 && heightPixels > 0) { "Activity dimensions must be positive" }
+        loadSafeMargins(context)?.let { return it.rectangle(widthPixels, heightPixels) }
         return SafeAreaCodec.decode(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(safeAreaKey(widthPixels, heightPixels), null),
@@ -520,6 +555,7 @@ object AirPlayPersistence {
             "Activity dimensions must be positive"
         }
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_SAFE_MARGINS)
             .putString(
                 safeAreaKey(activityWidthPixels, activityHeightPixels),
                 SafeAreaCodec.encode(rect.clampTo(activityWidthPixels, activityHeightPixels)),
@@ -537,22 +573,40 @@ object AirPlayPersistence {
             "Activity dimensions must be positive"
         }
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_SAFE_MARGINS)
             .remove(safeAreaKey(activityWidthPixels, activityHeightPixels))
         if (commit) editor.commit() else editor.apply()
     }
 
-    fun loadCustomAirPlayIconFile(context: Context): File? =
-        File(context.filesDir, CUSTOM_ICON_FILE).takeIf { it.isFile }
+    @Synchronized
+    fun loadCustomAirPlayIconFile(context: Context): File? {
+        val file = AtomicFile(File(context.filesDir, CUSTOM_ICON_FILE))
+        // Recover the last complete icon if a previous write was interrupted.
+        try { file.openRead().close() } catch (_: java.io.FileNotFoundException) { return null }
+        return file.baseFile
+    }
 
+    @Synchronized
     fun saveCustomAirPlayIcon(context: Context, encodedImage: ByteArray) {
         require(encodedImage.isNotEmpty()) { "AirPlay icon data must not be empty" }
-        File(context.filesDir, CUSTOM_ICON_FILE).outputStream().use { output ->
+        val file = AtomicFile(File(context.filesDir, CUSTOM_ICON_FILE))
+        val output = file.startWrite()
+        try {
             output.write(encodedImage)
+            file.finishWrite(output)
+        } catch (error: Exception) {
+            file.failWrite(output)
+            throw error
         }
     }
 
+    @Synchronized
     fun clearCustomAirPlayIcon(context: Context) {
-        File(context.filesDir, CUSTOM_ICON_FILE).delete()
+        val file = AtomicFile(File(context.filesDir, CUSTOM_ICON_FILE))
+        file.delete()
+        check(!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) {
+            "Could not delete custom AirPlay icon"
+        }
     }
 
     fun loadIdentity(context: Context): AirPlayIdentity {

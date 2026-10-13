@@ -12,7 +12,7 @@ import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
-/** The authenticated display owns both routes. Disconnect restores Android automatically. */
+/** The authenticated display owns both routes; unavailable browsers fall back unless input is disabled. */
 internal class BrowserAudioBridge {
     private val lock = Any()
     private var owner: Any? = null
@@ -21,6 +21,7 @@ internal class BrowserAudioBridge {
     private var secureOwner = false
     private var requestedPlayback = false
     private var requestedCapture = false
+    private var microphoneEnabled = true
     private var mediaBufferMillis = MediaAudioBuffer.DEFAULT_MILLIS
     private var playback = false
     private var capture = false
@@ -28,6 +29,8 @@ internal class BrowserAudioBridge {
     private var microphoneId = 0
     private var route: Route? = null
     val microphoneRequested get() = synchronized(lock) { requestedCapture && owner != null && secureOwner }
+    val playbackReady get() = synchronized(lock) { playback && owner != null }
+    val microphoneReady get() = synchronized(lock) { capture && owner != null }
 
     fun attach(owner: Any, secure: Boolean, send: (ByteArray, Long) -> Unit, control: (String) -> Unit) = synchronized(lock) {
         check(this.owner == null)
@@ -35,14 +38,17 @@ internal class BrowserAudioBridge {
         sendRoute()
     }
 
-    fun configure(playback: Boolean, capture: Boolean, mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS) {
+    fun configure(playback: Boolean, capture: Boolean, mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
+        microphoneEnabled: Boolean = true) {
         val change = synchronized(lock) {
-            requestedPlayback = playback; requestedCapture = capture
+            val enabledChanged = this.microphoneEnabled != microphoneEnabled
+            this.microphoneEnabled = microphoneEnabled
+            requestedPlayback = playback; requestedCapture = capture && microphoneEnabled
             this.mediaBufferMillis = MediaAudioBuffer.sanitize(mediaBufferMillis)
             sendRoute()
             this.playback = this.playback && playback
-            val nextCapture = this.capture && capture
-            val changed = this.capture != nextCapture
+            val nextCapture = this.capture && requestedCapture
+            val changed = this.capture != nextCapture || enabledChanged
             this.capture = nextCapture
             if (changed) route?.closeInputs()
             if (changed) route?.changed else null
@@ -111,6 +117,7 @@ internal class BrowserAudioBridge {
     }
 
     private inner class Route : RemoteAudioRoute {
+        override val microphoneEnabled get() = synchronized(lock) { this@BrowserAudioBridge.microphoneEnabled }
         val inputs = mutableMapOf<Int, Input>()
         var changed: (() -> Unit)? = null
         var playbackChanged: ((Boolean) -> Unit)? = null

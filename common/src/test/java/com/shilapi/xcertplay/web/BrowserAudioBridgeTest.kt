@@ -19,6 +19,52 @@ class BrowserAudioBridgeTest {
     private val mic = MicrophoneConfig("telephony", 16_000, 1, 97, 20,
         InetAddress.getLoopbackAddress(), 12345, ByteArray(32))
 
+    @Test fun disabledRouteNeverStartsRemoteOrLocalMicrophoneInMediaSink() {
+        var requested = false
+        val remote = object : com.shilapi.xcertplay.media.RemoteAudioRoute {
+            override val microphoneEnabled = false
+            override fun output(type: Int, format: AudioFormat, pcm: ByteArray, offset: Int, length: Int) = false
+            override fun audioStopped(type: Int) {}
+            override fun microphone(type: Int, config: MicrophoneConfig): com.shilapi.xcertplay.media.PcmInput? {
+                requested = true; return null
+            }
+            override fun microphoneStopped(type: Int) {}
+            override fun onMicrophoneRouteChanged(listener: () -> Unit) {}
+            override fun close() {}
+        }
+        val sink = com.shilapi.xcertplay.media.AndroidMediaSink(remoteAudio = remote)
+        sink.onMicrophoneStarted(100, mic)
+        assertFalse("A disabled route must be rejected before requesting or opening an input", requested)
+        sink.close()
+    }
+
+    @Test fun disabledMicrophoneClosesRemoteInputAndBlocksLocalFallbackAcrossBufferChanges() {
+        val bridge = BrowserAudioBridge(); val owner = Any()
+        val route = bridge.createRoute()
+        bridge.configure(false, true)
+        bridge.attach(owner, true, { _, _ -> }, {})
+        bridge.ready(owner, false, true)
+        val input = route.microphone(2, mic)!!
+        var changes = 0
+        route.onMicrophoneRouteChanged { changes++ }
+        bridge.configure(false, false, 300, microphoneEnabled = false)
+        assertFalse(route.microphoneEnabled)
+        assertFalse(bridge.microphoneRequested)
+        assertFalse(bridge.microphoneReady)
+        assertEquals(-1, input.read(ByteArray(4)))
+        assertNull(route.microphone(2, mic))
+        assertEquals(1, changes)
+        bridge.ready(owner, true, true)
+        bridge.configure(true, false, 1000, microphoneEnabled = false)
+        assertFalse(route.microphoneEnabled)
+        assertNull(route.microphone(2, mic))
+        bridge.configure(true, false, 1000, microphoneEnabled = true)
+        assertTrue(route.microphoneEnabled)
+        assertNull(route.microphone(2, mic))
+        assertEquals(2, changes)
+        route.close(); bridge.detach(owner)
+    }
+
     @Test fun onlyTheAuthenticatedOwnerCanRouteAudioOrFeedTheNegotiatedMicrophone() {
         val bridge = BrowserAudioBridge()
         val owner = Any(); val stranger = Any()

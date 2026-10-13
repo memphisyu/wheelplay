@@ -228,6 +228,7 @@ class AndroidMediaSink(
     }
 
     private fun startMicrophone(type: Int, config: MicrophoneConfig) {
+        if (remoteAudio?.microphoneEnabled == false) return
         val uplink = microphoneUplinks.computeIfAbsent(type) {
             MicrophoneUplink(config, remoteAudio?.microphone(type, config),
                 microphoneCounters.getOrPut(type) { MicrophoneCounters() })

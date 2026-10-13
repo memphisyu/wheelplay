@@ -308,6 +308,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                     return
                 }
                 viewer = this
+                WebSession.viewerStateChanged()
                 WebSession.audio.attach(this, secure, { packet, sequence -> sender.audio(packet, sequence) }, { text ->
                     val data = JSONObject(text)
                     val kind = when (data.getString("type")) {
@@ -485,6 +486,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                 WebSession.touch.drop(this)
             }
             sender.close()
+            WebSession.viewerStateChanged()
         }
     }
 }

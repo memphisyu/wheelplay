@@ -320,6 +320,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var locationPermissionAvailable = false
     private var microphoneAvailable = false
     private var microphonePermissionResolved = false
+    private var microphoneSource = CarPlayMicrophoneSource.ANDROID
     private var wirelessEnabled = false
     private var mfiTarget = MfiTarget.USB_CH341
     private var mfiI2cPath = AirPlayPersistence.DEFAULT_MFI_I2C_PATH
@@ -356,7 +357,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private val shuttingDown = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val airPlayCommandExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val logLines = ArrayDeque<LogEntry>()
     private val expireOldLogLines = Runnable { refreshLogView(System.currentTimeMillis()) }
     private val applyDisplaySize = Runnable {
@@ -457,7 +457,8 @@ class CarPlayHostActivity : ComponentActivity() {
         microphonePermissionResolved = microphoneAvailable
         if (reusedBackgroundSession) {
             updateDebugOverlays()
-        } else if (microphonePermissionResolved || WebSession.audio.microphoneRequested) {
+        } else if (AirPlayPersistence.loadMicrophoneSource(this) == CarPlayMicrophoneSource.DISABLED ||
+            microphonePermissionResolved || WebSession.audio.microphoneRequested) {
             microphonePermissionResolved = true
             requestStartupPrerequisites()
         } else {
@@ -466,6 +467,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun loadPersistedSettings() {
+        microphoneSource = AirPlayPersistence.loadMicrophoneSource(this)
         displayScaleTenths = AirPlayPersistence.loadDisplayScaleTenths(this)
         // Size is now chosen only through CarPlaySize; ignore the canvas scale older builds stored.
         uiScalePercent = CarPlayUiScale.DEFAULT
@@ -640,6 +642,17 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!isFinishing && controller == null && !menuOpen) {
+            locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
+            val selectedMicrophone = AirPlayPersistence.loadMicrophoneSource(this)
+            if (microphoneSource != selectedMicrophone) {
+                microphoneSource = selectedMicrophone
+                microphonePermissionResolved = selectedMicrophone == CarPlayMicrophoneSource.DISABLED ||
+                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ||
+                    WebSession.audio.microphoneRequested
+                if (!microphonePermissionResolved) microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
         locationPermissionAvailable = hasFineLocationPermission()
         if (locationPermissionAvailable) {
             manualHotspotChannelPermissionNote = null
@@ -2586,7 +2599,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 displayWidthPixels = scaledDisplay.widthPixels,
                 displayHeightPixels = scaledDisplay.heightPixels,
             ),
-            safeAreaDrawOutside = safeAreaDrawOutside,
+            safeAreaDrawOutside = if (AirPlayPersistence.loadSafeMargins(this)?.isFullScreen == false) false else safeAreaDrawOutside,
         )
         val requestSummary = "Display request selected=${CarPlayUiScale.label(requestedPercent)} percent=$requestedPercent " +
             "surface=${size.width}x${size.height} resolution=${displayScaleTenths * 10}% " +
@@ -2609,7 +2622,7 @@ class CarPlayHostActivity : ComponentActivity() {
             main = display,
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
-            microphone = true,
+            microphone = AirPlayPersistence.loadMicrophoneSource(this) != CarPlayMicrophoneSource.DISABLED,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
             oemLabel = normalizedManufacturer(),
@@ -2798,7 +2811,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun createMediaEngine(sink: AndroidMediaSink): CarPlayMediaEngine =
         CarPlayMediaEngine(
             sink = sink,
-            microphoneEnabled = true,
+            microphoneEnabled = AirPlayPersistence.loadMicrophoneSource(this) != CarPlayMicrophoneSource.DISABLED,
             audioCaptureDirectory = audioCaptureDirectory(),
         )
 
@@ -2942,6 +2955,8 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         val controllerGeneration = restartGeneration
+        // The settings page can change branding while this activity remains in the back stack.
+        simulatedManufacturerName = AirPlayPersistence.loadSimulatedManufacturerName(this)
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
         val locationProvider: Iap2LocationProvider? =
@@ -3023,19 +3038,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun syncAirPlayDarkMode() {
-        val session = activeAirPlaySession ?: return
-        val night = darkMode
-        airPlayCommandExecutor.execute {
-            try {
-                val sent = session.setNightMode(night)
-                Log.i(
-                    TAG,
-                    "AirPlay dark mode=${if (night) "dark" else "light"} eventChannelReady=$sent",
-                )
-            } catch (error: Throwable) {
-                Log.w(TAG, "Could not send AirPlay dark mode update", error)
-            }
-        }
+        if (activeAirPlaySession != null) WebSession.refreshAppearance(this)
     }
 
     private fun audioCaptureDirectory(): File? {
@@ -3257,7 +3260,6 @@ class CarPlayHostActivity : ComponentActivity() {
             oldController?.close()
             val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
             oldSink?.close()
-            airPlayCommandExecutor.shutdown()
             if (terminateProcess) {
                 applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
             }

@@ -38,6 +38,9 @@ Each Release includes an APK, corresponding source ZIP and SHA-256 checksums. Au
 - **Local network access**: Automatically detects available network addresses for browser access.
 - **Background service**: Background operation and automatic connection.
 - **Display and audio settings**: Adjustable display size, resolution, frame rate, and audio buffering.
+- **CarPlay preferences**: Follow Android's day/night mode or force day/night; select Android/browser audio output and Android/browser/disabled microphone input. Preview custom 0–40% safe margins on each edge; microphone and safe-area changes reconnect the iPhone. Keep CarPlay when browsers go offline, or disconnect the iPhone after 1/5 minutes; browser reconnection cancels the timer.
+- **Custom car branding**: In **Settings → OEM car name and icon**, rename CarPlay's return-to-car entry, select and crop a square image, or restore the default NIO name and icon. Changes apply on the next iPhone connection. Images are stored privately in the app, so the original file is no longer needed.
+- **Location source**: **Settings → Location → Location source** defaults to the iPhone's own location, with no external location advertised or reported by WheelPlay. Select the Android device to provide its position when requested by the iPhone, after reconnecting and granting precise location permission. iOS and the navigation app determine location fusion; wireless connections on older Android versions can still require location permission.
 - **Diagnostic export**: Save diagnostic reports locally for troubleshooting.
 
 ## Getting started
@@ -60,7 +63,7 @@ If the video element renders incorrectly in your car's browser, enable “Use Ca
 
 Canvas mode requires testing on car browsers such as NIO's. Changing the rendering path may help if an overlay covers only the native video element; it cannot guarantee success if the system stops decoding or overlays the entire page. Test while the vehicle is parked. Drivers should use only essential navigation interfaces while driving.
 
-Enable browser audio and microphone input separately under Settings → Display & Audio in the Android app. Both can be toggled while connected. Browser microphone input requires configuring a local HTTPS certificate for that device, then pairing again through the HTTPS entry point and granting microphone permission. See the [browser audio guide](docs/BROWSER_AUDIO.md) (Chinese) for instructions. If the car's browser does not support trusted HTTPS or AudioWorklet, continue using the Android microphone.
+Select Audio output and Microphone source under Settings → Display & Audio. Output changes apply immediately; microphone source changes reconnect the iPhone. Disabling microphone input stops capture/uplink and removes input capability advertisements. Current routes are shown; unavailable browsers fall back to Android, while disabled microphone input blocks all fallback capture. Browser microphone input requires a trusted local HTTPS certificate, pairing through HTTPS, and granting microphone permission. See the [browser audio guide](docs/BROWSER_AUDIO.md) (Chinese). If trusted HTTPS or AudioWorklet is unavailable, use the Android microphone.
 
 ## Requirements and limitations
 

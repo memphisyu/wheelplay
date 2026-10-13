@@ -22,6 +22,7 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -41,6 +42,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.widget.doAfterTextChanged
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import java.io.File
@@ -118,17 +120,32 @@ class DiPlayActivity : AppCompatActivity() {
     private var notificationTransport = true
     private var exportInProgress = false
     private var exportButton: Button? = null
+    private var audioOutputStatus: TextView? = null
+    private var microphoneSourceStatus: TextView? = null
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
     private val tick = object : Runnable {
-        override fun run() { refreshStatus(); refreshService(); refreshRootSettings(); handler.postDelayed(this, 1000) }
+        override fun run() { refreshStatus(); refreshService(); refreshRootSettings(); refreshAudioRoutes(); handler.postDelayed(this, 1000) }
     }
     private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) choosePhone() else permissionHelp("附近设备", "请允许访问附近设备，以连接已配对的 iPhone。")
     }
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) exportDiagnostics(uri)
+    }
+
+    private val oemImagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) runCatching {
+            oemImageCrop.launch(Intent(this, ImageCropActivity::class.java)
+                .setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        }.onFailure { toast("无法打开图标裁剪界面，请重试") }
+    }
+    private val oemImageCrop = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            render()
+            toast("车厂图标已保存，下次连接 iPhone 生效")
+        }
     }
 
     private val authenticationImport by lazy {
@@ -428,7 +445,7 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun settings(content: LinearLayout) {
         content.addView(label("设置", 30, TEXT, true))
-        content.addView(label("修改画面尺寸、分辨率、音频缓冲、帧率或串流技术时会重新连接。其他设置在下次连接生效。", 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
+        content.addView(label("昼夜模式、音频输出和浏览器离线策略立即生效。修改画面、麦克风来源或串流参数会重新连接；其他设置在下次连接生效。", 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         section(content, "CarPlay 认证资源") { card ->
             card.addView(label(if (DiPlayBootstrap.importing) "正在本机导入…" else if (setupError == null)
                 "资源已就绪 · 私钥与证书校验通过" else "尚未配置有效资源", 16, if (setupError == null) TEXT else WARNING))
@@ -454,9 +471,20 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(ui.preference("iPhone", selectedPhoneName()) { choosePhone() }, matchButton())
         }
         section(content, "无线连接") { card -> wirelessLinkControls(card) }
+        section(content, "OEM 车厂名称与图标") { card -> oemControls(card) }
+        section(content, "定位") { card ->
+            locationSourceControl(card)
+            card.addView(label("默认由 iPhone 和导航 App 定位。选择 Android 后，在 iPhone 请求时提供这台设备的定位数据，需要 Android 精确定位权限。下次连接 iPhone 生效。", 14, MUTED))
+        }
         section(content, "浏览器设备") { card ->
             card.addView(label("配对后的浏览器会被记住，下次打开时自动恢复配对；选择启动选项后，点击网页上的「启动显示」。", 16, MUTED))
             card.addView(ui.preference("连接过的设备", "查看、重命名或移除浏览器") { showBrowserDevices() })
+            val policies = BrowserOfflinePolicy.entries
+            experienceChoice(card, "浏览器离线后的处理", policies.map { it.label },
+                policies.indexOf(AirPlayPersistence.loadBrowserOfflinePolicy(this))) {
+                WebSession.setBrowserOfflinePolicy(this, policies[it])
+            }
+            card.addView(label("计时从 CarPlay 会话启动且无浏览器连接时开始；浏览器重连会取消计时。超时只断开 iPhone，Web 服务保持运行。", 14, MUTED))
         }
         section(content, "Web 监听") { card ->
             card.addView(ui.preference("HTTP 端口", WebListenSettings.httpPort(this).toString()) {
@@ -525,7 +553,14 @@ class DiPlayActivity : AppCompatActivity() {
             }
         }
         section(content, "画面与音频") { card ->
+            val appearances = CarPlayAppearance.entries
+            experienceChoice(card, "CarPlay 昼夜模式", appearances.map { it.label },
+                appearances.indexOf(AirPlayPersistence.loadAppearance(this))) {
+                WebSession.setAppearance(this, appearances[it])
+            }
+            card.addView(label("即时发送给 iPhone；跟随 Android 时使用此服务设备的系统昼夜模式。", 14, MUTED))
             carPlaySizeControl(card)
+            safeAreaControl(card)
             toggle(card, "自适应浏览器尺寸", "按车机浏览器的实际画面比例协商 CarPlay 分辨率；浏览器尺寸变化时会重新连接。", AirPlayPersistence.loadAdaptiveBrowserSize(this)) {
                 AirPlayPersistence.saveAdaptiveBrowserSize(this, it)
                 WebSession.setAdaptiveBrowserSize(it)
@@ -536,12 +571,22 @@ class DiPlayActivity : AppCompatActivity() {
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
                 WebSession.setMediaBufferMillis(this, bufferPresets[it])
             }
-            toggle(card, "转发音频到浏览器", "开启后将 CarPlay 音频发送到已配对的浏览器播放。", AirPlayPersistence.loadBrowserAudioPlayback(this)) {
-                WebSession.setBrowserAudioPlayback(this, it)
+            val outputs = CarPlayAudioOutput.entries
+            experienceChoice(card, "音频输出", outputs.map { it.label }, if (AirPlayPersistence.loadBrowserAudioPlayback(this)) 1 else 0) {
+                WebSession.setBrowserAudioPlayback(this, outputs[it] == CarPlayAudioOutput.BROWSER)
+                refreshAudioRoutes()
             }
-            toggle(card, "使用浏览器麦克风", "开启后使用已配对浏览器的麦克风；需要可信 HTTPS 和浏览器授权。", AirPlayPersistence.loadBrowserMicrophone(this)) {
-                WebSession.setBrowserMicrophone(this, it)
+            audioOutputStatus = label("", 14, MUTED).also(card::addView)
+            card.addView(label("即时切换。浏览器未就绪或离线时回退 Android；浏览器可能需要点击页面才能播放声音。", 14, MUTED))
+            val microphones = CarPlayMicrophoneSource.entries
+            experienceChoice(card, "麦克风来源", microphones.map { it.label },
+                microphones.indexOf(AirPlayPersistence.loadMicrophoneSource(this)), reconnect = true) {
+                WebSession.setMicrophoneSource(this, microphones[it])
+                refreshAudioRoutes()
             }
+            microphoneSourceStatus = label("", 14, MUTED).also(card::addView)
+            card.addView(label("修改后重新连接。浏览器麦克风需要可信 HTTPS 和授权，未就绪时回退 Android；禁用会停止上传并取消麦克风能力声明。", 14, MUTED))
+            refreshAudioRoutes()
             choice(card, "协商帧率", listOf("30 fps · 较低负载", "60 fps · 更流畅"), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
             val technologies = com.shilapi.xcertplay.web.StreamTechnology.entries
             choice(card, "串流技术", technologies.map { it.label },
@@ -609,6 +654,194 @@ class DiPlayActivity : AppCompatActivity() {
                 }.onFailure { toast("未找到可打开网页的浏览器") }
             })
         }
+    }
+
+    private fun oemControls(card: LinearLayout) {
+        val name = AirPlayPersistence.loadSimulatedManufacturerName(this)
+        val custom = AirPlayPersistence.loadCustomAirPlayIconFile(this)?.let {
+            BitmapFactory.decodeFile(it.absolutePath)
+        }
+        val preview = ImageView(this).apply {
+            contentDescription = "CarPlay 车厂图标预览"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageBitmap(custom ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home))
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(preview, LinearLayout.LayoutParams(dp(72), dp(72)))
+            addView(column().apply {
+                addView(label(name, 20, TEXT, true))
+                addView(label(if (custom != null) "自定义图标" else "默认 NIO 图标", 14, MUTED))
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(16) })
+        }
+        card.addView(row)
+        card.addView(label("显示在 CarPlay 应用列表的「返回车机」入口。名称与图标可分别修改，下次连接 iPhone 生效。", 14, MUTED).apply {
+            setPadding(0, dp(12), 0, dp(8))
+        })
+        card.addView(ui.preference("车厂名称", name) {
+            textInput("车厂名称（留空恢复 NIO）", name, false) {
+                AirPlayPersistence.saveSimulatedManufacturerName(this, it)
+                render()
+                toast("车厂名称已保存，下次连接 iPhone 生效")
+            }
+        })
+        card.addView(button("选择车厂图标", false) {
+            runCatching { oemImagePicker.launch("image/*") }
+                .onFailure { toast("此设备没有可用的图片选择器，请先安装文件管理器后重试") }
+        }, ui.secondaryButtonLayout(12))
+        card.addView(label("选择图片后可拖动、缩放并裁剪为正方形。图标保存在本机，原图片删除后仍可使用。", 14, MUTED))
+        card.addView(button("恢复默认图标", false) {
+            runCatching { AirPlayPersistence.clearCustomAirPlayIcon(this) }
+                .onSuccess { render(); toast("已恢复默认图标，下次连接 iPhone 生效") }
+                .onFailure { toast("无法恢复默认图标，请重试") }
+        }.apply { isEnabled = AirPlayPersistence.loadCustomAirPlayIconFile(this@DiPlayActivity) != null }, ui.secondaryButtonLayout(12))
+        card.addView(button("恢复默认名称与图标", false) {
+            MaterialAlertDialogBuilder(this).setTitle("恢复默认车厂设置？")
+                .setMessage("车厂名称和图标将恢复为 NIO。下次连接 iPhone 生效。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("恢复默认") { _, _ ->
+                    runCatching {
+                        AirPlayPersistence.clearCustomAirPlayIcon(this)
+                        AirPlayPersistence.saveSimulatedManufacturerName(this, AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME)
+                    }.onSuccess { render(); toast("已恢复默认车厂设置") }
+                        .onFailure { toast("无法恢复默认车厂设置，请重试") }
+                }.show()
+        }, ui.secondaryButtonLayout(12))
+    }
+
+    private fun locationSourceControl(card: LinearLayout) {
+        val options = listOf("iPhone 自身定位（默认）", "Android 设备定位")
+        val control = ui.preference("定位来源", options[if (AirPlayPersistence.loadLocationReportingEnabled(this)) 1 else 0]) {}
+        control.setOnClickListener {
+            var selected = if (AirPlayPersistence.loadLocationReportingEnabled(this)) 1 else 0
+            MaterialAlertDialogBuilder(this).setTitle("定位来源")
+                .setSingleChoiceItems(options.toTypedArray(), selected) { _, index -> selected = index }
+                .setPositiveButton("保存") { _, _ ->
+                    AirPlayPersistence.saveLocationReportingEnabled(this, selected == 1)
+                    control.setValue(options[selected])
+                    toast("定位来源已保存，下次连接 iPhone 生效")
+                }.setNegativeButton("取消", null).show()
+        }
+        card.addView(control, matchButton())
+    }
+
+    private fun experienceChoice(card: LinearLayout, title: String, options: List<String>, initial: Int,
+        reconnect: Boolean = false, save: (Int) -> Unit) {
+        var selection = initial
+        val control = ui.preference(title, options[selection]) {}
+        control.setOnClickListener {
+            var pending = selection
+            MaterialAlertDialogBuilder(this).setTitle(title)
+                .setSingleChoiceItems(options.toTypedArray(), selection) { _, index -> pending = index }
+                .setPositiveButton("保存") { _, _ ->
+                    if (pending != selection) {
+                        save(pending)
+                        selection = pending
+                        control.setValue(options[selection])
+                        if (reconnect) reconnectForPreference()
+                    }
+                }.setNegativeButton("取消", null).show()
+        }
+        card.addView(control, matchButton())
+    }
+
+    private fun reconnectForPreference() {
+        if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+        else toast("已保存，下次连接 iPhone 生效")
+    }
+
+    private fun refreshAudioRoutes() {
+        val session = CarPlayBackgroundSession.snapshot()
+        audioOutputStatus?.text = when {
+            session == null -> "当前：未连接 iPhone"
+            AirPlayPersistence.loadBrowserAudioPlayback(this) && WebSession.audio.playbackReady && session.sink.isRemoteMediaAvailable() -> "当前输出：车机浏览器"
+            AirPlayPersistence.loadBrowserAudioPlayback(this) -> "当前输出：Android（浏览器尚未就绪或已离线）"
+            else -> "当前输出：Android"
+        }
+        val source = AirPlayPersistence.loadMicrophoneSource(this)
+        microphoneSourceStatus?.text = when {
+            source == CarPlayMicrophoneSource.DISABLED -> "当前：麦克风已禁用"
+            session == null -> "当前：未连接 iPhone"
+            source == CarPlayMicrophoneSource.BROWSER && WebSession.audio.microphoneReady -> "输入来源：浏览器（按需采集）"
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED -> "Android 麦克风未授权；浏览器未就绪时无法输入语音"
+            source == CarPlayMicrophoneSource.BROWSER -> "输入来源：Android（浏览器麦克风尚未就绪）"
+            else -> "输入来源：Android（按需采集）"
+        }
+    }
+
+    private fun safeAreaControl(card: LinearLayout) {
+        val margins = AirPlayPersistence.loadSafeMargins(this)
+        val summary = when {
+            margins == null -> {
+                val size = WebSession.currentBrowserViewport ?: (1280 to 720)
+                if (AirPlayPersistence.loadSafeAreaRect(this, size.first, size.second) != null) "保留已有安全区域" else "全屏"
+            }
+            margins.isFullScreen -> "全屏"
+            else -> "上 ${margins.top}% · 下 ${margins.bottom}% · 左 ${margins.left}% · 右 ${margins.right}%"
+        }
+        card.addView(ui.preference("画面安全区域", summary) { editSafeArea() })
+        card.addView(label("为被车机控件遮挡的边缘设置留白，按画面比例适配分辨率。保存后重新连接，让 iPhone 在安全区域内布局；触控坐标仍覆盖完整画面。", 14, MUTED))
+    }
+
+    private fun editSafeArea() {
+        val current = AirPlayPersistence.loadSafeMargins(this) ?: CarPlaySafeMargins()
+        val values = listOf(current.top, current.bottom, current.left, current.right)
+        val names = listOf("上边留白", "下边留白", "左边留白", "右边留白")
+        val inputs = mutableListOf<TextInputEditText>()
+        val content = column().apply { setPadding(dp(24), dp(8), dp(24), 0) }
+        val validation = label("每边 0–40%，0 表示不留白。", 14, MUTED)
+        var previewMargins = current
+        val preview = object : View(this) {
+            override fun onDraw(canvas: android.graphics.Canvas) {
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                val border = dp(8).toFloat()
+                val w = width - 2 * border; val h = height - 2 * border
+                paint.color = SURFACE
+                canvas.drawRect(border, border, border + w, border + h, paint)
+                paint.color = ACCENT
+                paint.alpha = 100
+                canvas.drawRect(border + w * previewMargins.left / 100, border + h * previewMargins.top / 100,
+                    border + w * (100 - previewMargins.right) / 100, border + h * (100 - previewMargins.bottom) / 100, paint)
+            }
+        }.apply { contentDescription = "画面安全区域预览" }
+        content.addView(preview, LinearLayout.LayoutParams(-1, dp(112)))
+        content.addView(label("高亮区域为 CarPlay 布局区域", 14, MUTED))
+        for (index in names.indices) {
+            val field = TextInputLayout(this).apply {
+                hint = names[index]; suffixText = "%"; boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            }
+            val input = TextInputEditText(field.context).apply {
+                setSingleLine(); inputType = android.text.InputType.TYPE_CLASS_NUMBER; setText(values[index].toString())
+            }
+            inputs.add(input); field.addView(input, LinearLayout.LayoutParams(-1, -2))
+            input.doAfterTextChanged {
+                runCatching {
+                    val parts = inputs.map { it.text.toString().toInt() }
+                    if (parts.size == 4) CarPlaySafeMargins(parts[0], parts[1], parts[2], parts[3]) else null
+                }.getOrNull()?.let { previewMargins = it; preview.invalidate() }
+            }
+            content.addView(field, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+        content.addView(validation)
+        val dialog = MaterialAlertDialogBuilder(this).setTitle("画面安全区域").setView(ScrollView(this).apply { addView(content) })
+            .setNegativeButton("取消", null).setNeutralButton("恢复全屏") { _, _ ->
+                AirPlayPersistence.saveSafeMargins(this, CarPlaySafeMargins())
+                render(); reconnectForPreference()
+            }.setPositiveButton("保存", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val result = runCatching {
+                    val parts = inputs.map { it.text.toString().toIntOrNull() ?: error("请输入 0–40 的整数") }
+                    CarPlaySafeMargins(parts[0], parts[1], parts[2], parts[3])
+                }
+                result.onSuccess {
+                    AirPlayPersistence.saveSafeMargins(this, it)
+                    dialog.dismiss(); render(); reconnectForPreference()
+                }.onFailure { validation.text = it.message ?: "请输入有效的留白比例"; validation.setTextColor(WARNING) }
+            }
+        }
+        dialog.show()
     }
 
     private fun refreshAuthentication() {
@@ -769,7 +1002,7 @@ class DiPlayActivity : AppCompatActivity() {
         val ssid = storedSsid()
         val password = storedPassword()
         parent.addView(ui.preference("热点名称", ssid) {
-            textInput("热点名称", ssid, secret = false) { value ->
+            textInput("热点名称", ssid, secret = false, preserveWhitespace = true) { value ->
                 hotspotError(value, password)?.let { toast(it); return@textInput }
                 saveHotspotCredentials(value, password)
                 render()
@@ -804,7 +1037,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun askHotspotCredentials(done: (String, String) -> Unit) {
-        textInput("热点名称", storedSsid(), secret = false) { ssid ->
+        textInput("热点名称", storedSsid(), secret = false, preserveWhitespace = true) { ssid ->
             textInput("热点密码", storedPassword(), secret = true) { password ->
                 val error = hotspotError(ssid, password)
                 if (error != null) toast(error) else done(ssid, password)
@@ -901,7 +1134,8 @@ class DiPlayActivity : AppCompatActivity() {
         }, "https-pkcs12-read").start()
     }
 
-    private fun textInput(title: String, current: String, secret: Boolean, onCancel: () -> Unit = {}, save: (String) -> Unit) {
+    private fun textInput(title: String, current: String, secret: Boolean, preserveWhitespace: Boolean = false,
+        onCancel: () -> Unit = {}, save: (String) -> Unit) {
         val field = TextInputLayout(this).apply {
             hint = title
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
@@ -920,7 +1154,9 @@ class DiPlayActivity : AppCompatActivity() {
         field.addView(input, LinearLayout.LayoutParams(-1, -2))
         val container = column().apply { setPadding(dp(24), dp(8), dp(24), 0); addView(field) }
         MaterialAlertDialogBuilder(this).setTitle(title).setView(container)
-            .setPositiveButton("保存") { _, _ -> save(input.text.toString().let { if (secret) it else it.trim() }) }
+            .setPositiveButton("保存") { _, _ ->
+                save(input.text.toString().let { if (secret || preserveWhitespace) it else it.trim() })
+            }
             .setNegativeButton("取消") { _, _ -> onCancel() }.setOnCancelListener { onCancel() }.show()
     }
 

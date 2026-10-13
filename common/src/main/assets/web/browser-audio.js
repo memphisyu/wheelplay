@@ -1,3 +1,4 @@
+import { createMseMusic } from './mse-music.js';
 // Independent of video transport: the same paired channel works with JPEG and WebRTC.
 export function decodeAudioPacket(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 22) return null;
@@ -47,13 +48,14 @@ export function createMediaElementOutput(context) {
 
 export function createBrowserAudio({
   send, sendBinary, onState = () => {},
-  createMediaOutput = createMediaElementOutput,
+  createMediaOutput = () => null,
   createContext = () => new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }),
   getMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }),
   createWorklet = context => new AudioWorkletNode(context, 'wheelplay-microphone', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }),
   secure = () => window.isSecureContext && location.protocol === 'https:' && !!navigator.mediaDevices?.getUserMedia,
 } = {}) {
   let mediaOutput = null;
+  let mseMusic = null, mseStream = null, mseFailed = false;
   let context = null, playback = false, microphone = false, connected = false;
   let playbackGeneration = 0, microphoneGeneration = 0, captureGeneration = 0;
   let desiredPlayback = false, desiredMicrophone = false, gestureRetry = false;
@@ -61,7 +63,7 @@ export function createBrowserAudio({
   let mediaBufferMillis = 300;
   let stream = null, source = null, worklet = null, micId = null, micSequence = 0;
   const streams = new Map(), nodes = new Set();
-  function state(error = '') { onState({ playback, microphone, connected, error, captureActive: !!stream, mediaOutput: mediaOutput ? "html-audio" : "web-audio" }); }
+  function state(error = '') { onState({ playback, microphone, connected, error, captureActive: !!stream, mediaOutput: mseMusic ? "mse-flac" : mediaOutput ? "html-audio-fallback" : "web-audio" }); }
   function readyState() { if (connected) send({ type: 'audio-ready', playback, microphone }); }
   async function ready() {
     if (!context) context = createContext();
@@ -70,6 +72,7 @@ export function createBrowserAudio({
     return context;
   }
   function stopPlayback(id = null) {
+    if (id === null || id === mseStream) { mseMusic?.close(); mseMusic = null; mseStream = null; }
     for (const node of [...nodes]) if (id === null || node.stream === id) {
       try { node.stop(); } catch (_) {} nodes.delete(node);
     }
@@ -148,6 +151,18 @@ export function createBrowserAudio({
     if (!frame) return false;
     send({ type: 'audio-ack', sequence: frame.sequence });
     if (!playback || !connected || context?.state !== 'running') return true;
+    if (frame.media && !mseFailed) {
+      if (mseMusic && (mseStream !== frame.stream || mseMusic.rate !== frame.rate || mseMusic.channels !== frame.channels)) { mseMusic.close(); mseMusic = null; }
+      if (!mseMusic) {
+        mseStream = frame.stream;
+        mseMusic = createMseMusic({ rate: frame.rate, channels: frame.channels, onError: (error, autoplay) => {
+          if (autoplay) { state(error); return; }
+          mseMusic = null; mseFailed = true; state('原生音乐播放失败，已降级：' + error);
+        }});
+        if (mseMusic) { mseMusic.start(); state(); }
+      }
+      if (mseMusic) { mseMusic.packet(frame); return true; }
+    }
     const now = context.currentTime;
     const delay = frame.media ? mediaBufferMillis / 1000 : .06;
     // A media burst after a radio gap must fit above the selected start buffer.
@@ -201,7 +216,7 @@ export function createBrowserAudio({
   function close() {
     playbackGeneration++; microphoneGeneration++; connected = false; microphone = playback = false;
     desiredPlayback = desiredMicrophone = gestureRetry = testMode = false;
-    mediaBufferMillis = 300;
+    mediaBufferMillis = 300; mseFailed = false;
     stopMicrophone(); stopPlayback();
     mediaOutput?.close(); mediaOutput = null;
     const old = context; context = null; old?.close().catch(() => {}); state();
@@ -216,8 +231,11 @@ export function createBrowserAudio({
     },
     attach() { connected = true; state(); },
     unlock() {
-      if (!connected || testMode || gestureRetry) return;
+      if (!connected || testMode) return;
+      mseMusic?.start();
+      if (gestureRetry) return;
       gestureRetry = true;
+      mseMusic?.start();
       if (desiredPlayback && !playback) setPlayback(true);
       if (desiredMicrophone && !microphone) setMicrophone(true);
     },

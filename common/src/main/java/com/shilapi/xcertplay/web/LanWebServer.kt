@@ -91,6 +91,8 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             "/style.css" -> "style.css" to "text/css; charset=utf-8"
             "/browser-media.js" -> "browser-media.js" to "text/javascript; charset=utf-8"
             "/media-probe.js" -> "media-probe.js" to "text/javascript; charset=utf-8"
+            "/flac-mp4.js" -> "flac-mp4.js" to "text/javascript; charset=utf-8"
+            "/mse-music.js" -> "mse-music.js" to "text/javascript; charset=utf-8"
             "/browser-audio.js" -> "browser-audio.js" to "text/javascript; charset=utf-8"
             "/audio-worklet.js" -> "audio-worklet.js" to "text/javascript; charset=utf-8"
             else -> return response(Response.Status.NOT_FOUND, "Not found")

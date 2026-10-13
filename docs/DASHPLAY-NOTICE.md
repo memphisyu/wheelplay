@@ -1,0 +1,1 @@
+FLAC/MP4 framing adapted from https://github.com/yizhixiaoheigou/DashPlay/blob/main/patches/playport-wired-music.patch under GPL-3.0. Original project: DashPlay by yizhixiaoheigou. Preserve this attribution and GPL-3.0 when distributing.

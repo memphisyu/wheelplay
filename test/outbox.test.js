@@ -97,3 +97,9 @@ test('media actions remain ordered under congestion and are discarded on disconn
   f.outbox.close(); f.socket.bufferedAmount=0; f.advance(100);
   assert.equal(f.sent.length,2);
 });
+test('paired artwork requests pass through the signaling outbox',()=>{
+ const sent=[];const socket={readyState:1,bufferedAmount:0,send:s=>sent.push(JSON.parse(s))};
+ const outbox=createControlOutbox(socket);
+ assert.equal(outbox.send({type:'artwork-request',artworkKey:'1:2:3'}),true);
+ assert.deepEqual(sent,[{type:'artwork-request',artworkKey:'1:2:3'}]);outbox.close();
+});

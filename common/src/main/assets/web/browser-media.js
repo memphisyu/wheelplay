@@ -2,6 +2,7 @@
 export function createBrowserMedia({ send, session = globalThis.navigator?.mediaSession,
   Metadata = globalThis.MediaMetadata, now = () => Date.now() } = {}) {
   const diagnostics = { supported: !!session, metadata: null, changes: [], actions: {}, registered: [], commands: [], lastAction: null, error: null };
+  let artwork = null, artworkKey = null, pendingArtwork = null, requestedAt = 0;
   let enabled = false, suspended = false, state = null, key = '', registered = false, requestSequence = 0, handlerEpoch = 0;
   const actions = { play: 'PLAY', pause: 'PAUSE', nexttrack: 'NEXT', previoustrack: 'PREVIOUS' };
   const attempt = operation => { try { operation(); } catch (error) { diagnostics.error = String(error?.message || error); } };
@@ -15,7 +16,7 @@ export function createBrowserMedia({ send, session = globalThis.navigator?.media
     return record.result !== 'NOT_SENT';
   }
   function clear() {
-    state = null; key = ''; registered = false; handlerEpoch++; diagnostics.registered = [];
+    state = null; artwork = artworkKey = pendingArtwork = null; key = ''; registered = false; handlerEpoch++; diagnostics.registered = [];
     for (const record of diagnostics.commands) if (record.result === 'PENDING') record.result = 'DISCONNECTED';
     if (!session) return;
     attempt(() => { session.metadata = null; session.playbackState = 'none'; });
@@ -32,9 +33,9 @@ export function createBrowserMedia({ send, session = globalThis.navigator?.media
       });
       registered = true;
     }
-    const nextKey = JSON.stringify([state.title, state.artist, state.album]);
+    const nextKey = JSON.stringify([state.title, state.artist, state.album, artwork]);
     if (Metadata && key !== nextKey) attempt(() => {
-      session.metadata = new Metadata({ title: state.title, artist: state.artist, album: state.album }); key = nextKey;
+      session.metadata = new Metadata({ title: state.title, artist: state.artist, album: state.album, artwork: artwork ? [{ src: artwork, type: artwork.startsWith('data:image/png') ? 'image/png' : 'image/jpeg' }] : [] }); key = nextKey;
     });
     attempt(() => { session.playbackState = state.playing ? 'playing' : 'paused'; });
     attempt(() => {
@@ -51,13 +52,23 @@ export function createBrowserMedia({ send, session = globalThis.navigator?.media
     },
     expire() { for (const record of diagnostics.commands) if (record.result === 'PENDING' && now() - record.at >= 5000) record.result = 'TIMEOUT'; },
     control(data) {
+      if (data.type === 'artwork' && enabled && state?.available && data.artworkKey === state.artworkKey) {
+        const valid = typeof data.artwork === 'string' && /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(data.artwork) && data.artwork.length <= 710000;
+        artwork = valid ? data.artwork : null; artworkKey = data.artworkKey; pendingArtwork = null;
+        diagnostics.artwork = { available: !!artwork, key: artworkKey }; render();
+      }
       if (data.type === 'media-command-result') {
         const record = diagnostics.commands.find(r => r.requestId === data.requestId && r.generation === data.generation);
         if (record && ['PENDING', 'TIMEOUT'].includes(record.result)) { record.result = data.result; record.completedAt = now(); }
       }
       if (data.type === 'audio-route') { enabled = !!data.playback; if (!suspended) { if (!enabled) clear(); else render(); } }
       if (data.type === 'now-playing') {
+        if (state?.artworkKey !== data.artworkKey || !data.hasArtwork) { artwork = null; artworkKey = null; pendingArtwork = null; }
         state = data;
+        if (enabled && data.available && data.hasArtwork && data.artworkKey && artworkKey !== data.artworkKey &&
+            (pendingArtwork !== data.artworkKey || now() - requestedAt >= 2000)) {
+          pendingArtwork = data.artworkKey; requestedAt = now(); send({type:'artwork-request',artworkKey:data.artworkKey});
+        }
         const next = { available: !!data.available, generation: data.generation, title: data.title, artist: data.artist, album: data.album, playing: data.playing };
         if (JSON.stringify(next) !== JSON.stringify(diagnostics.metadata)) {
           diagnostics.changes.push({ at: now(), ...next }); if (diagnostics.changes.length > 40) diagnostics.changes.shift();

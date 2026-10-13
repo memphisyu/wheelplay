@@ -57,3 +57,17 @@ test('old media handlers cannot control a newly connected session', () => {
  media.control({type:'audio-route',playback:true}); media.control({type:'now-playing',available:true,generation:2});
  stale(); assert.equal(sent.length,0); handlers.nexttrack(); assert.equal(sent[0].generation,2);
 });
+test('artwork is requested by track, published, retained and rejects stale covers',()=>{
+ const sent=[], session={setActionHandler(){},setPositionState(){}};
+ const media=createBrowserMedia({session,Metadata:class {constructor(v){Object.assign(this,v)}},send:m=>sent.push(m)});
+ const track={type:'now-playing',available:true,generation:1,title:'Song',artist:'Artist',playing:true,hasArtwork:true,artworkKey:'1:2:3'};
+ media.control({type:'audio-route',playback:true});media.control(track);
+ assert.deepEqual(sent[0],{type:'artwork-request',artworkKey:'1:2:3'});
+ media.control({type:'artwork',artworkKey:'1:2:3',artwork:'data:image/jpeg;base64,/9j/'});
+ assert.equal(session.metadata.artwork[0].src,'data:image/jpeg;base64,/9j/');
+ media.control(track);assert.equal(sent.length,1);assert.equal(session.metadata.artwork.length,1);
+ media.control({...track,title:'Next',artworkKey:'1:3:4'});assert.equal(session.metadata.artwork.length,0);
+ media.control({type:'artwork',artworkKey:'1:2:3',artwork:'data:image/jpeg;base64,/9j/'});assert.equal(session.metadata.artwork.length,0);
+ media.control({type:'artwork',artworkKey:'1:3:4',artwork:'https://bad.invalid/image'});assert.equal(session.metadata.artwork.length,0);
+ media.clear();assert.equal(session.metadata,null);
+});

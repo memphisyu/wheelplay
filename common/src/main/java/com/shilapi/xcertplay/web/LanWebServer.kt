@@ -389,11 +389,30 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                         val height = data.getInt("height")
                         require(WebSession.reportBrowserViewport(width, height))
                     }
+                    "artwork-request" -> {
+                        val state = com.shilapi.xcertplay.CarPlayBackgroundSession.snapshot()?.controller?.mediaSnapshot()
+                        val key = "${state?.connectionGeneration ?: 0}:${state?.trackRevision ?: 0}:${state?.artworkTransferId ?: -1}"
+                        if (state?.available == true && data.optString("artworkKey") == key) {
+                            val bytes = state.artwork?.bytes()
+                            val mime = when {
+                                bytes == null -> null
+                                bytes.size >= 3 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte() -> "image/jpeg"
+                                bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() -> "image/png"
+                                else -> null
+                            }
+                            val image = if (mime != null && bytes != null && bytes.size <= 512 * 1024)
+                                "data:$mime;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP) else ""
+                            reply(WebStreamSender.Control.ARTWORK, JSONObject().put("type", "artwork")
+                                .put("artworkKey", key).put("artwork", image).toString())
+                        }
+                    }
                     "ping" -> {
                         val state = com.shilapi.xcertplay.CarPlayBackgroundSession.snapshot()?.controller?.mediaSnapshot()
                         val mediaStatus = JSONObject().put("type", "now-playing")
                             .put("available", state?.available == true).put("generation", state?.connectionGeneration ?: 0)
                             .put("title", state?.title ?: state?.appName ?: "CarPlay")
+                            .put("artworkKey", "${state?.connectionGeneration ?: 0}:${state?.trackRevision ?: 0}:${state?.artworkTransferId ?: -1}")
+                            .put("hasArtwork", state?.artwork != null)
                             .put("artist", state?.artist ?: "").put("album", state?.album ?: "")
                             .put("playing", state?.playing == true).put("duration", (state?.durationMs ?: 0) / 1000.0)
                             .put("position", (state?.positionAt(SystemClock.elapsedRealtime()) ?: 0) / 1000.0)

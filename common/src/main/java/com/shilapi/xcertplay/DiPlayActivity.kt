@@ -372,7 +372,7 @@ class DiPlayActivity : AppCompatActivity() {
         val compatibility = TeslaHttpCompatibility.status
         teslaStatus?.text = if (!TeslaHttpCompatibility.config(this).enabled) "已关闭"
             else if (!WebSession.running && setupError != null) "导入认证资源后启动"
-            else compatibility.error ?: compatibility.address?.let { "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请用车机测试访问" }
+            else compatibility.error ?: compatibility.address?.let { "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请在车机浏览器访问" }
             ?: "正在准备 Root 热点路由…"
         webInterface?.visibility = if (primary == null) View.GONE else View.VISIBLE
         if (displayedAddresses != addresses) {
@@ -514,7 +514,7 @@ class DiPlayActivity : AppCompatActivity() {
                 certificateControls(card)
             }
         }
-        section(content, "Tesla 兼容（实验）") { card ->
+        section(content, "Tesla 兼容") { card ->
             renderedRootState = rootState()
             val rootRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             rootRow.addView(button("请求 Root 权限", false) {
@@ -614,7 +614,7 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(label("服务运行时保持 CPU 和 Wi-Fi；锁屏事件会写入诊断报告。Root 辅助仅配置本应用的系统省电豁免，不能保证绕过 ColorOS 网络限制。", 14, MUTED))
             card.addView(label(RootKeepAlive.summary(this), 14, MUTED))
             card.addView(button("Root 配置本应用省电豁免", false) {
-                configureWeb("省电豁免已配置，请重新测试锁屏") { RootKeepAlive.apply(applicationContext); null }
+                configureWeb("省电豁免已配置") { RootKeepAlive.apply(applicationContext); null }
             }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(12))
             card.addView(button("恢复本功能修改的省电设置", false) {
                 configureWeb("已恢复本功能修改的省电设置") { RootKeepAlive.restore(applicationContext); null }
@@ -1326,11 +1326,11 @@ class DiPlayActivity : AppCompatActivity() {
         Thread({
             val result = runCatching {
                 val report = buildString {
-                    appendLine("WheelPlay ${version()} · private beta diagnostic report")
+                    appendLine("WheelPlay ${version()} · diagnostic report")
                     appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
                     appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
                     appendLine("Connection: ${if (AirPlayPersistence.loadWirelessEnabled(appContext)) "wireless" else "USB"}")
-                    appendLine("Authentication: local experimental beta identity; no remote fallback")
+                    appendLine("Authentication: locally configured identity; no remote fallback")
                     appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
                     appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
@@ -1380,7 +1380,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
     private fun openSystem(intent: Intent) { runCatching { startActivity(intent) }.onFailure { toast("请从此设备的系统设置中打开该选项。") } }
     private fun toast(message: String) { com.google.android.material.snackbar.Snackbar.make(shell.root, message, com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show() }
-    private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
+    private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
     private fun section(parent: LinearLayout, title: String, build: (LinearLayout) -> Unit) =
         ui.section(parent, title, content = build)
     private fun toggle(parent: LinearLayout, title: String, description: String, value: Boolean, enabled: Boolean = true, save: (Boolean) -> Unit) {

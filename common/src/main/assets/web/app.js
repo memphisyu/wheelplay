@@ -532,7 +532,7 @@ if (typeof document !== 'undefined') {
   }
   function refreshMediaPanel() {
     if ($('media-test-panel').hidden) return;
-    $('media-test-mode').textContent = probe.active ? '普通播放器测试模式：以下按钮切换测试音；请同时测试方向盘。' : 'CarPlay 控制模式：以下按钮控制 iPhone。SENT 仅表示命令已发送，请观察实际切歌。';
+    $('media-test-mode').textContent = probe.active ? '播放器检查模式：以下按钮切换提示音；可同时检查方向盘控制。' : 'CarPlay 控制模式：以下按钮控制 iPhone。SENT 仅表示命令已发送，请观察实际切歌。';
     $('probe-start').disabled = !paired || probe.active;
     $('probe-stop').disabled = !probe.active;
     document.querySelectorAll('[data-media-action]').forEach(button => {

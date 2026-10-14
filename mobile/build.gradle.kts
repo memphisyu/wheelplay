@@ -12,11 +12,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "moe.feng.wheelplay"
+        applicationId = "moe.feng.wheelplay.xpengaudio"
         minSdk = 28
         targetSdk = 36
-        versionCode = 29
-        versionName = "0.3.0"
+        versionCode = 30
+        versionName = "1.0"
 
     }
 
@@ -36,8 +36,6 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".xpengaudio"
-            versionNameSuffix = "-xpeng-audio9-background-resize"
         }
         release {
             optimization {

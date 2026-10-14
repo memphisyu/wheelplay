@@ -1,4 +1,4 @@
-# WheelPlay
+# Wheelplay 小鹏定制版
 
 [EN](README.md) | **CN**
 
@@ -6,15 +6,17 @@ WheelPlay 是一款 Android 局域网 CarPlay 服务端应用，可将 iPhone �
 
 应用安装在 Android 设备上，车机通过浏览器访问即可使用，无需安装客户端或部署额外服务器。
 
-## 小鹏修订版：当前版本 audio9
+## 小鹏修订版：当前版本 1.0
 
-[下载 audio9 后台与比例测试版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio9-background-resize) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
+[下载 Wheelplay 小鹏定制版 1.0](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.0) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
+
+1.0 基于 audio9 整理为正式发布，统一应用名称和界面文案，保留其后台连接、比例调整及媒体功能。正式发布状态不代表所有设备场景均已验证，具体限制见下文。
 
 本仓库是 [fython/wheelplay](https://github.com/fython/wheelplay) 的个人修订分支 `xpeng`，主要测试小鹏 G9 的浏览器 CarPlay。APK 安装在 Android 手机／平板上，车机通过同一局域网的浏览器访问。非小鹏或 Apple 官方产品，其他车型、系统版本的兼容性需分别验证。
 
 | 版本 | 改动 | 当前验证情况 |
 | --- | --- | --- |
-| **audio9** / versionCode 29 | 开机直接启动网页服务、系统回收后恢复、Root 启用状态与配对浏览器后台准备连接；相近比例保留原流 | 522 项自动测试通过；15T 锁屏无感连接仍需实车验证 |
+| **1.0** / versionCode 30 | 开机直接启动网页服务、系统回收后恢复、Root 启用状态与配对浏览器后台准备连接；相近比例保留原流 | 522 项自动测试通过；15T 锁屏无感连接仍需实车验证 |
 | **audio8** / versionCode 28 | 同步上游车厂自定义、日夜模式、定位／麦克风来源、安全区域、浏览器离线策略及热点名称修复；保留 MSE 音乐和封面 | 用户已确认 G9 正常显示封面；其他使用场景仍需验证 |
 | **audio7** / versionCode 27 | 在 audio6 上增加系统媒体控件封面；按需发送 JPEG/PNG，随切歌更新并拒绝迟到旧封面 | 484 项自动测试通过；小鹏车机封面显示待实车验证 |
 | **audio6** / versionCode 26 | 音乐通过 FLAC/MP4＋MSE 的真实媒体播放器播放，接入浏览器 Media Session | 用户在 G9 实测确认方向盘上一首／下一首和系统媒体控件歌曲信息显示正常 |

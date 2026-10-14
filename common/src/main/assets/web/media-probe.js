@@ -27,7 +27,7 @@ export function createMediaProbe({ element, session = globalThis.navigator?.medi
   function metadata() {
     attempt(() => {
       if (!session) return;
-      if (Metadata) session.metadata = new Metadata({ title: `WheelPlay 媒体测试 ${track + 1}`, artist: '本地有声测试', album: 'G9 方向盘验证' });
+      if (Metadata) session.metadata = new Metadata({ title: `Wheelplay 音频检查 ${track + 1}`, artist: '本地提示音', album: '媒体控制检查' });
       session.playbackState = element.paused ? 'paused' : 'playing';
       session.setPositionState?.();
     });

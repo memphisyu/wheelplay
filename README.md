@@ -1,4 +1,4 @@
-# WheelPlay
+# Wheelplay 小鹏定制版
 
 **EN** | [CN](README.zh-CN.md)
 
@@ -6,15 +6,17 @@ WheelPlay is an Android-hosted CarPlay server for local networks. It streams you
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
 
-## XPENG fork: latest audio9
+## XPENG fork: latest 1.0
 
-[Download audio9 background/resize test build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio9-background-resize) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-audio9)
+[Download Wheelplay XPENG Edition 1.0](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.0) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-10)
+
+Version 1.0 formalizes audio9 with the new app name, release packaging and updated UI copy. Functional limitations remain documented below.
 
 This personal `xpeng` fork of [fython/wheelplay](https://github.com/fython/wheelplay) runs on an Android phone/tablet and serves CarPlay to the car browser over a local network. It is independent of XPENG and Apple.
 
 | Version | Changes | Validation |
 | --- | --- | --- |
-| **audio9**, versionCode 29 | Direct boot listener startup, sticky service recovery, explicit Root keepalive opt-in and paired-browser background wireless preparation; close-aspect viewport changes retain the stream | 522 automated tests passed; locked OnePlus 15T startup needs vehicle testing |
+| **1.0**, versionCode 30 | Direct boot listener startup, sticky service recovery, explicit Root keepalive opt-in and paired-browser background wireless preparation; close-aspect viewport changes retain the stream | 522 automated tests passed; locked OnePlus 15T startup needs vehicle testing |
 | **audio8**, versionCode 28 | Syncs upstream OEM customization, appearance, location/microphone sources, safe margins, offline policy and hotspot SSID fixes; retains MSE music and artwork | User confirmed G9 album artwork display; other regression testing still needed |
 | **audio7**, versionCode 27 | Adds JPEG/PNG album artwork to browser MediaMetadata; track-bound requests and stale-cover rejection | 484 automated tests passed; G9 artwork display still needs vehicle testing |
 | **audio6**, versionCode 26 | FLAC-in-fragmented-MP4 music playback through MSE and browser Media Session | User confirmed steering-wheel track skipping and system song information on a G9 |

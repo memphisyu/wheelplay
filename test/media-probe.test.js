@@ -26,8 +26,8 @@ test('file probe owns media controls, switches real sources and cleans up stale 
   const {probe,element,session,handlers,revoked,order} = fixture();
   probe.start(); await Promise.resolve();
   assert.deepEqual(order,['enter']); assert.equal(element.src,'blob:1'); assert.equal(element.srcObject,undefined);
-  assert.equal(session.metadata.title,'WheelPlay 媒体测试 1'); assert.equal(session.playbackState,'playing');
-  handlers.nexttrack(); await Promise.resolve(); assert.equal(element.src,'blob:2'); assert.equal(session.metadata.title,'WheelPlay 媒体测试 2');
+  assert.equal(session.metadata.title,'Wheelplay 音频检查 1'); assert.equal(session.playbackState,'playing');
+  handlers.nexttrack(); await Promise.resolve(); assert.equal(element.src,'blob:2'); assert.equal(session.metadata.title,'Wheelplay 音频检查 2');
   assert.ok(probe.diagnostics.events.some(e => e.origin === 'media-session'));
   const stale = handlers.nexttrack; probe.stop(); stale();
   assert.deepEqual(revoked,['blob:1','blob:2']); assert.deepEqual(order,['enter','exit']);

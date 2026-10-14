@@ -3050,7 +3050,14 @@ class CarPlayHostActivity : ComponentActivity() {
         if (width <= 0 || height <= 0 || shuttingDown.get()) return
         val browserSize = WebSession.currentBrowserViewport.takeIf { WebSession.adaptiveBrowserSize }
         val size = browserSize?.let { DisplaySize(it.first, it.second) } ?: DisplaySize(1280, 720)
-        if (size == activeDisplaySize || size == pendingDisplaySize) return
+        if (size == activeDisplaySize) { mainHandler.removeCallbacks(applyDisplaySize); pendingDisplaySize = null; return }
+        if (size == pendingDisplaySize) return
+        if (controller != null && WebSession.adaptiveBrowserSize && activeDisplaySize?.let {
+            DisplayResizePolicy.closeShape(it.width, it.height, size.width, size.height)
+        } == true) {
+            mainHandler.removeCallbacks(applyDisplaySize); pendingDisplaySize = null
+            return
+        }
         pendingDisplaySize = size
         mainHandler.removeCallbacks(applyDisplaySize)
         mainHandler.postDelayed(applyDisplaySize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
@@ -3065,12 +3072,13 @@ class CarPlayHostActivity : ComponentActivity() {
             fun even(value: Double) = (value.toInt().coerceAtLeast(2) / 2) * 2
             DisplaySize(even(width * scale), even(height * scale))
         }
-        if (size == activeDisplaySize || size == pendingDisplaySize) return
+        if (size == activeDisplaySize) { mainHandler.removeCallbacks(applyDisplaySize); pendingDisplaySize = null; return }
+        if (size == pendingDisplaySize) return
         activeDisplaySize?.let { active ->
-            if (kotlin.math.abs(size.width - active.width) <= 8 &&
-                kotlin.math.abs(size.height - active.height) <= 8 &&
-                kotlin.math.abs(size.width.toDouble() / size.height - active.width.toDouble() / active.height) < 0.01
-            ) return
+            if (controller != null && DisplayResizePolicy.closeShape(active.width, active.height, size.width, size.height)) {
+                mainHandler.removeCallbacks(applyDisplaySize); pendingDisplaySize = null
+                return
+            }
         }
         appendLog("Adaptive browser display requested: ${size.width}x${size.height}")
         pendingDisplaySize = size

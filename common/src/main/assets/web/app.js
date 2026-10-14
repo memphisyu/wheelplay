@@ -585,7 +585,7 @@ if (typeof document !== 'undefined') {
   function scheduleViewportReport() {
     clearTimeout(viewportReportTimer);
     viewportReportTimer = setTimeout(() => {
-      if (!socket || socket.readyState !== WebSocket.OPEN || display.hidden) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN || display.hidden || document.hidden) return;
       const rect = display.getBoundingClientRect(), scale = window.devicePixelRatio || 1;
       const width = Math.round(rect.width * scale / 2) * 2;
       const height = Math.round(rect.height * scale / 2) * 2;
@@ -594,7 +594,7 @@ if (typeof document !== 'undefined') {
       if (signature === lastViewportSignature) return;
       lastViewportSignature = signature;
       send({ type: 'viewport', width, height });
-    }, 180);
+    }, 800);
   }
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(scheduleViewportReport).observe(display);
   window.addEventListener('resize', scheduleViewportReport);

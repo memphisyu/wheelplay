@@ -51,6 +51,23 @@ class DiPlaySessionService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var destroyed = false
     private var activationBlocked = false
+    private var microphoneForegroundAllowed = false
+    private val backgroundPreparing = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var lastBackgroundPrepare = 0L
+    private fun prepareWirelessInBackground(): String {
+        if (!RootKeepAlive.ownsExemption(this) || !DiPlayPreferences.autoConnect(this) || !AirPlayPersistence.loadWirelessEnabled(this))
+            return "后台连接需要启用 Root 保活、打开应用时自动连接，并提前配置无线连接和权限"
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (backgroundPreparing.get() || now - lastBackgroundPrepare < 30000) return "后台连接准备已请求，请稍候"
+        if (!backgroundPreparing.compareAndSet(false, true)) return "后台连接准备中"
+        lastBackgroundPrepare = now
+        Thread({
+            try { if (!destroyed) RootKeepAlive.launchHost(this) }
+            catch (error: Exception) { RootKeepAlive.record(this, "background prepare failed ${error.javaClass.simpleName}: ${error.message?.take(160)}") }
+            finally { backgroundPreparing.set(false) }
+        }, "wheelplay-background-prepare").start()
+        return "已请求后台准备无线连接；首次权限或设备选择仍需在 Android 上完成"
+    }
     private var currentState = NowPlayingState()
     private var currentSession: MediaSession? = null
     private var currentArtwork: Bitmap? = null
@@ -67,6 +84,7 @@ class DiPlaySessionService : Service() {
         else registerReceiver(screenEvents, filter)
         main.post(keepaliveTick)
         RootKeepAlive.record(this, "service created")
+        WebSession.setBackgroundPhoneConnectHandler { prepareWirelessInBackground() }
         RootAccess.checkOnStartup()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "CarPlay 服务", NotificationManager.IMPORTANCE_LOW))
@@ -97,6 +115,7 @@ class DiPlaySessionService : Service() {
             return START_NOT_STICKY
         }
         activationBlocked = false
+        microphoneForegroundAllowed = intent != null && intent.action != ACTION_BACKGROUND_START
         updateNotification()
         // Foreground startup must be acknowledged even when an external start is rejected.
         // Never open listeners or acquire a wake lock without a validated identity.
@@ -120,6 +139,11 @@ class DiPlaySessionService : Service() {
             }
             return START_NOT_STICKY
         }
+        Thread({
+            runCatching { RootKeepAlive.reapplyIfOwned(this) }.onFailure {
+                RootKeepAlive.record(this, "root reapply failed ${it.javaClass.simpleName}: ${it.message?.take(160)}")
+            }
+        }, "wheelplay-root-recheck").start()
         runWebAction {
             if (!destroyed) WebSession.start(this)
             updateNotification()
@@ -132,7 +156,7 @@ class DiPlaySessionService : Service() {
             }
             if (Looper.myLooper() == Looper.getMainLooper()) acquireWakeLock() else main.post { acquireWakeLock() }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun runWebAction(action: () -> Unit) {
@@ -180,7 +204,7 @@ class DiPlaySessionService : Service() {
         if (Build.VERSION.SDK_INT >= 29) {
             var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (currentState.available && currentState.playing) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            if (Build.VERSION.SDK_INT >= 30 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            if (microphoneForegroundAllowed && Build.VERSION.SDK_INT >= 30 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                 types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             }
             startForeground(NOTIFICATION_ID, notification, types)
@@ -190,6 +214,7 @@ class DiPlaySessionService : Service() {
     override fun onDestroy() {
         RootKeepAlive.record(this, "service destroyed")
         destroyed = true
+        WebSession.setBackgroundPhoneConnectHandler(null)
         main.removeCallbacks(keepaliveTick)
         runCatching { unregisterReceiver(screenEvents) }
         screenProtection.release()
@@ -202,6 +227,7 @@ class DiPlaySessionService : Service() {
         super.onDestroy()
     }
     companion object {
+        const val ACTION_BACKGROUND_START = "com.shilapi.xcertplay.START_SERVER_BACKGROUND"
         const val ACTION_STOP = "com.shihab.diplay.DISCONNECT"
         private const val ACTION_MEDIA = "com.shilapi.xcertplay.MEDIA_COMMAND"
         private const val EXTRA_COMMAND = "command"

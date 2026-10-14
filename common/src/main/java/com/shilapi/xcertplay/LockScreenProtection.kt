@@ -38,6 +38,24 @@ internal object RootKeepAlive {
         }
         record(context, "root exemption applied")
     }
+    fun ownsExemption(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("added", false)
+    fun hostLaunchCommand(pkg: String): String {
+        require(pkg.matches(Regex("[A-Za-z0-9_.]+")))
+        return "am start --user current -f 0x10000000 -n $pkg/com.shilapi.xcertplay.CarPlayHostActivity"
+    }
+    fun launchHost(context: Context) {
+        check(ownsExemption(context)) { "未启用应用管理的 Root 保活" }
+        check(DiPlayPreferences.autoConnect(context)) { "未启用自动连接" }
+        check(AirPlayPersistence.loadWirelessEnabled(context)) { "后台准备仅用于已配置的无线连接" }
+        val result = run(hostLaunchCommand(context.packageName))
+        check(!result.contains("Error:", ignoreCase = true)) { "系统拒绝后台准备连接" }
+        record(context, "root requested wireless host initialization; interactive=${context.getSystemService(PowerManager::class.java).isInteractive}")
+    }
+    @Synchronized fun reapplyIfOwned(context: Context) {
+        if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("added", false)) apply(context)
+        else record(context, "root reapply skipped: no app-owned exemption")
+    }
     @Synchronized fun restore(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean("added", false)) {

@@ -72,7 +72,11 @@ internal object WebSession {
 
     fun viewerStateChanged() {
         val refresh = {
-            experienceContext?.let { offlineMonitor.refresh(AirPlayPersistence.loadBrowserOfflinePolicy(it).timeoutMillis) }
+            experienceContext?.let {
+                offlineMonitor.refresh(AirPlayPersistence.loadBrowserOfflinePolicy(it).timeoutMillis)
+                if (hasViewer && !CarPlayBackgroundSession.hasSession() && phoneConnectHandler == null &&
+                    com.shilapi.xcertplay.DiPlayPreferences.autoConnect(it)) backgroundPhoneConnectHandler?.invoke()
+            }
             Unit
         }
         if (Looper.myLooper() == Looper.getMainLooper()) refresh() else mainHandler.post { refresh() }
@@ -104,6 +108,8 @@ internal object WebSession {
             AirPlayPersistence.loadMediaBufferMillis(context), source != CarPlayMicrophoneSource.DISABLED)
     }
     private var phoneConnectHandler: (() -> String)? = null
+    private var backgroundPhoneConnectHandler: (() -> String)? = null
+    fun setBackgroundPhoneConnectHandler(handler: (() -> String)?) { backgroundPhoneConnectHandler = handler }
     private var lastPhoneConnectAt: Long? = null
 
     private var browserDevices: RememberedBrowsers? = null
@@ -144,11 +150,11 @@ internal object WebSession {
             val now = SystemClock.elapsedRealtime()
             val message = when {
                 CarPlayBackgroundSession.hasSession() -> "iPhone 会话已启动，请等待连接完成"
-                phoneConnectHandler == null -> "请先将 Android 上的 WheelPlay 打开到前台，再点击连接 iPhone"
+                phoneConnectHandler == null && backgroundPhoneConnectHandler == null -> "请先将 Android 上的 WheelPlay 打开到前台，再点击连接 iPhone"
                 lastPhoneConnectAt?.let { now - it < 3000 } == true -> "连接请求已提交，请稍候"
                 else -> {
                     lastPhoneConnectAt = now
-                    runCatching { phoneConnectHandler!!.invoke() }
+                    runCatching { (phoneConnectHandler ?: backgroundPhoneConnectHandler)!!.invoke() }
                         .getOrElse { "无法启动连接，请在 Android 上检查连接设置" }
                 }
             }

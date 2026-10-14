@@ -11,17 +11,15 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         if (!AirPlayPersistence.loadAutoStartOnBoot(context)) return
 
-        val launch = Intent(context, DiPlayActivity::class.java).apply {
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
-            )
-        }
+        // Start the listener service directly; background activity launches are OEM restricted.
+        val service = Intent(context, DiPlaySessionService::class.java)
+            .setAction(DiPlaySessionService.ACTION_BACKGROUND_START)
         try {
-            context.startActivity(launch)
+            context.startForegroundService(service)
+            RootKeepAlive.record(context, "boot requested background web service")
         } catch (error: RuntimeException) {
-            Log.w(TAG, "Boot auto-start could not launch CarPlayHostActivity", error)
+            RootKeepAlive.record(context, "boot service start failed ${error.javaClass.simpleName}: ${error.message?.take(160)}")
+            Log.w(TAG, "Boot auto-start could not start web service", error)
         }
     }
 

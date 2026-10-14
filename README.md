@@ -1,4 +1,4 @@
-> **1.0.1 release candidate:** [Download](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.1) · [Changes and verification](docs/XPENG-1.0.1-RC1.md). Adds upstream audio/connection reliability fixes. Version 1.0 remains the stable release; vehicle regression feedback is needed.
+> **1.0.1 RC2 release candidate:** [Download](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.2) · [Changes and verification](docs/XPENG-1.0.1-RC2.md). Fixes overly broad viewport resize tolerance and retains RC1 upstream reliability improvements. Significant split-screen/fullscreen changes may reconnect once. Version 1.0 remains the stable release; vehicle regression feedback is needed.
 
 # Wheelplay 小鹏定制版
 

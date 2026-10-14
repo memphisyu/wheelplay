@@ -525,7 +525,11 @@ if (typeof document !== 'undefined') {
   });
   function diagnosticSnapshot() {
     browserMedia.expire();
-    return { version: 'audio5-media-probe', at: new Date().toISOString(),
+    const viewport = display.getBoundingClientRect();
+    return { version: '1.0.1-rc.2', at: new Date().toISOString(),
+      display: { viewportWidth: viewport.width, viewportHeight: viewport.height,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        streamWidth: width, streamHeight: height, hidden: document.hidden },
       media: browserMedia.diagnostics, audio: audioDiagnostics, probe: probe.snapshot(),
       capabilities: mediaCapabilities(window, $('probe-audio')), keyboard: keyboardEvents,
       secure: window.isSecureContext, browser: navigator.userAgent };

@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay
 import android.content.Context
 import android.content.Intent
-import androidx.test.core.app.ApplicationProvider
+import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -10,7 +10,7 @@ import org.robolectric.Shadows
 @RunWith(RobolectricTestRunner::class)
 class BootServiceStartTest {
     @Test fun enabledBootStartsListenerServiceWithoutActivity() {
-        val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         AirPlayPersistence.saveAutoStartOnBoot(context,true)
         BootReceiver().onReceive(context,Intent(Intent.ACTION_BOOT_COMPLETED))
         val start=Shadows.shadowOf(context).nextStartedService
@@ -19,7 +19,7 @@ class BootServiceStartTest {
         assertNull(Shadows.shadowOf(context).nextStartedActivity)
     }
     @Test fun disabledBootStartsNothing() {
-        val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         AirPlayPersistence.saveAutoStartOnBoot(context,false)
         BootReceiver().onReceive(context,Intent(Intent.ACTION_BOOT_COMPLETED))
         assertNull(Shadows.shadowOf(context).nextStartedService)

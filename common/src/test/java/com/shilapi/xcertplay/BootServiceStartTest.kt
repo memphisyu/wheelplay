@@ -8,6 +8,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 @RunWith(RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [29])
 class BootServiceStartTest {
     @Test fun enabledBootStartsListenerServiceWithoutActivity() {
         val context = RuntimeEnvironment.getApplication()

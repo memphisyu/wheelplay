@@ -111,12 +111,12 @@ class LanTlsTest {
                 val fingerprint = WebSession.tls!!.fingerprint
                 WebSession.stop(); WebSession.start(context); waitForHttps()
                 assertEquals(fingerprint, WebSession.tls!!.fingerprint)
-                assertTrue(httpsGet(WebSession.httpsPort).contains("WheelPlay"))
+                assertTrue(httpsGet(WebSession.httpsPort).contains("Wheelplay 小鹏定制版"))
             }
             assertNull(WebSession.restoreDefaultCertificate(context))
             assertFalse(LanTls.hasCustom(context))
             assertFalse(WebSession.tls!!.custom)
-            assertTrue(httpsGet(WebSession.httpsPort).contains("WheelPlay"))
+            assertTrue(httpsGet(WebSession.httpsPort).contains("Wheelplay 小鹏定制版"))
         } finally { WebSession.stop() }
     }
 
@@ -164,7 +164,7 @@ class LanTlsTest {
             waitForHttps()
             LanTls.preparePkcs12(pkcs12(identity, password), password).use {
                 assertNull(WebSession.installCertificate(context, it))
-                assertTrue(httpsGet(WebSession.httpsPort).contains("WheelPlay"))
+                assertTrue(httpsGet(WebSession.httpsPort).contains("Wheelplay 小鹏定制版"))
                 assertEquals("CN=Test Server", WebSession.tls!!.subject)
             }
         } finally { WebSession.stop() }
@@ -184,8 +184,8 @@ class LanTlsTest {
             assertEquals(https, WebSession.httpsPort)
             assertFalse(RootAccess.granted)
             assertEquals(code, WebSession.code)
-            assertTrue(URL("http://127.0.0.1:$http/").readText().contains("WheelPlay"))
-            assertTrue(httpsGet(https).contains("WheelPlay"))
+            assertTrue(URL("http://127.0.0.1:$http/").readText().contains("Wheelplay 小鹏定制版"))
+            assertTrue(httpsGet(https).contains("Wheelplay 小鹏定制版"))
         } finally { WebSession.stop() }
     }
 
@@ -224,7 +224,7 @@ class LanTlsTest {
             assertTrue(WebSession.httpsReady)
             assertEquals(fingerprint, WebSession.tls!!.fingerprint)
             assertEquals(https, WebSession.httpsPort)
-            assertTrue(httpsGet(https).contains("WheelPlay"))
+            assertTrue(httpsGet(https).contains("Wheelplay 小鹏定制版"))
         } finally { WebSession.stop() }
     }
 
@@ -240,11 +240,11 @@ class LanTlsTest {
                 assertFalse(WebListenSettings.httpsEnabled(context))
                 assertFalse(WebSession.httpsReady)
                 assertEquals(code, WebSession.code)
-                assertTrue(URL("http://127.0.0.1:${WebSession.httpPort}/").readText().contains("WheelPlay"))
+                assertTrue(URL("http://127.0.0.1:${WebSession.httpPort}/").readText().contains("Wheelplay 小鹏定制版"))
             }
             assertNull(WebSession.setHttpsEnabled(context, true))
             assertTrue(WebSession.httpsReady)
-            assertTrue(httpsGet(WebSession.httpsPort).contains("WheelPlay"))
+            assertTrue(httpsGet(WebSession.httpsPort).contains("Wheelplay 小鹏定制版"))
         } finally { WebSession.stop() }
     }
 
@@ -261,19 +261,19 @@ class LanTlsTest {
             }
             assertEquals(oldPort, WebSession.httpsPort)
             assertEquals(oldPort, WebListenSettings.httpsPort(context))
-            assertTrue(httpsGet(oldPort).contains("WheelPlay"))
+            assertTrue(httpsGet(oldPort).contains("Wheelplay 小鹏定制版"))
             assertNotNull(WebSession.setHttpsPort(context, WebSession.httpPort))
             val port = ServerSocket(0).use { it.localPort }
             assertNull(WebSession.setHttpsPort(context, port))
             assertEquals(port, WebListenSettings.httpsPort(context))
             assertEquals(code, WebSession.code)
             assertEquals(fingerprint, WebSession.tls!!.fingerprint)
-            assertTrue(httpsGet(port).contains("WheelPlay"))
+            assertTrue(httpsGet(port).contains("Wheelplay 小鹏定制版"))
             val info = org.json.JSONObject(URL("http://127.0.0.1:${WebSession.httpPort}/tls.json").readText())
             assertEquals(port, info.getInt("port"))
             WebSession.stop(); WebSession.start(context); waitForHttps()
             assertEquals(port, WebSession.httpsPort)
-            assertTrue(httpsGet(port).contains("WheelPlay"))
+            assertTrue(httpsGet(port).contains("Wheelplay 小鹏定制版"))
         } finally { WebSession.stop() }
     }
 }

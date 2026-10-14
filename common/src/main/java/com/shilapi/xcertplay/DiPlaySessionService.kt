@@ -115,7 +115,9 @@ class DiPlaySessionService : Service() {
             return START_NOT_STICKY
         }
         activationBlocked = false
-        microphoneForegroundAllowed = intent != null && intent.action != ACTION_BACKGROUND_START
+        microphoneForegroundAllowed = intent != null && intent.action != ACTION_BACKGROUND_START &&
+            getSystemService(PowerManager::class.java).isInteractive &&
+            !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
         updateNotification()
         // Foreground startup must be acknowledged even when an external start is rejected.
         // Never open listeners or acquire a wake lock without a validated identity.

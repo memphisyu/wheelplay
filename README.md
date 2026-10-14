@@ -6,15 +6,16 @@ WheelPlay is an Android-hosted CarPlay server for local networks. It streams you
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
 
-## XPENG fork: latest audio8
+## XPENG fork: latest audio9
 
-[Download audio8 upstream sync test build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio8-upstream) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-audio8)
+[Download audio9 background/resize test build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio9-background-resize) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-audio9)
 
 This personal `xpeng` fork of [fython/wheelplay](https://github.com/fython/wheelplay) runs on an Android phone/tablet and serves CarPlay to the car browser over a local network. It is independent of XPENG and Apple.
 
 | Version | Changes | Validation |
 | --- | --- | --- |
-| **audio8**, versionCode 28 | Syncs upstream OEM customization, appearance, location/microphone sources, safe margins, offline policy and hotspot SSID fixes; retains MSE music and artwork | Vehicle regression testing required |
+| **audio9**, versionCode 29 | Direct boot listener startup, sticky service recovery, explicit Root keepalive opt-in and paired-browser background wireless preparation; close-aspect viewport changes retain the stream | 522 automated tests passed; locked OnePlus 15T startup needs vehicle testing |
+| **audio8**, versionCode 28 | Syncs upstream OEM customization, appearance, location/microphone sources, safe margins, offline policy and hotspot SSID fixes; retains MSE music and artwork | User confirmed G9 album artwork display; other regression testing still needed |
 | **audio7**, versionCode 27 | Adds JPEG/PNG album artwork to browser MediaMetadata; track-bound requests and stale-cover rejection | 484 automated tests passed; G9 artwork display still needs vehicle testing |
 | **audio6**, versionCode 26 | FLAC-in-fragmented-MP4 music playback through MSE and browser Media Session | User confirmed steering-wheel track skipping and system song information on a G9 |
 | audio1–audio5 | Buffering, lock-screen protection, microphone and media diagnostics | Historical test builds |
@@ -25,9 +26,11 @@ Check `audio.mediaOutput` in media diagnostics: `mse-flac` indicates the new pat
 
 Wireless input is typically AAC, decoded on Android to PCM before browser FLAC/MP4 framing; **AAC passthrough is not implemented**. Supported music is 44.1/48 kHz mono/stereo; navigation/calls retain Web Audio. Unsupported FLAC MSE or decoding errors fall back to Web Audio. Microphone input needs trusted HTTPS; a publicly trusted certificate for your own hostname can avoid installing a CA on the car. Certificate name and LAN DNS must match the address used. Microphone-related vehicle audio routing still needs separate testing.
 
+For audio9, enable boot startup and auto-connect, finish wireless pairing/permissions, and apply Root keepalive once inside the app. Start with microphone disabled when testing locked background startup. The car browser must already be paired, and the phone must join the car hotspot. DNS must point to the current host LAN IP. Force-stop/OEM restrictions can still block recovery; this is experimental. Similar viewport aspect ratios retain negotiated dimensions with the existing proportional fit, while major changes still reconnect.
+
 Each Release includes an APK, corresponding source ZIP and SHA-256 checksums. Authentication identities, TLS private keys and Android signing keys are excluded. FLAC framing adapts [DashPlay](https://github.com/yizhixiaoheigou/DashPlay) under GPL-3.0; see [attribution](docs/DASHPLAY-NOTICE.md).
 
-[XPENG notes](XPENG.md) · [MSE test guide](docs/XPENG-AUDIO6-MSE.md) · [artwork test guide](docs/XPENG-AUDIO7-ARTWORK.md) · [authentication import](docs/AUTHENTICATION_IMPORT.md)
+[audio9 setup and test guide](docs/XPENG-AUDIO9-BACKGROUND-RESIZE.md) · [XPENG notes](XPENG.md) · [MSE test guide](docs/XPENG-AUDIO6-MSE.md) · [artwork test guide](docs/XPENG-AUDIO7-ARTWORK.md) · [authentication import](docs/AUTHENTICATION_IMPORT.md)
 
 ## Features
 

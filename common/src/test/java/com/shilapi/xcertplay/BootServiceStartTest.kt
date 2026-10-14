@@ -29,4 +29,13 @@ class BootServiceStartTest {
         assertTrue(RootKeepAlive.hostLaunchCommand("moe.feng.wheelplay.xpengaudio").contains("/com.shilapi.xcertplay.CarPlayHostActivity"))
         assertThrows(IllegalArgumentException::class.java) {RootKeepAlive.hostLaunchCommand("pkg;reboot")}
     }
+    @Test fun rootOptInIsDistinctFromWhitelistOwnershipAndMigratesOldChoice() {
+        val context=RuntimeEnvironment.getApplication()
+        val prefs=context.getSharedPreferences("root_keepalive",Context.MODE_PRIVATE)
+        prefs.edit().clear().commit(); assertFalse(RootKeepAlive.isEnabled(context))
+        prefs.edit().putBoolean("added",true).commit(); assertTrue(RootKeepAlive.isEnabled(context))
+        prefs.edit().putBoolean("enabled",false).commit(); assertFalse(RootKeepAlive.isEnabled(context))
+        prefs.edit().clear().putBoolean("enabled",true).commit(); assertTrue(RootKeepAlive.isEnabled(context))
+        assertFalse(prefs.getBoolean("added",false))
+    }
 }

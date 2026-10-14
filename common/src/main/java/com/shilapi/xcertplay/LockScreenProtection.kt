@@ -36,16 +36,19 @@ internal object RootKeepAlive {
             run(command(pkg, true))
             check(isListed(run("cmd deviceidle whitelist"), pkg)) { "系统未接受省电豁免" }
         }
+        check(prefs.edit().putBoolean("enabled", true).commit())
         record(context, "root exemption applied")
     }
-    fun ownsExemption(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("added", false)
+    fun isEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getBoolean("enabled", prefs.getBoolean("added", false))
+    }
     fun hostLaunchCommand(pkg: String): String {
         require(pkg.matches(Regex("[A-Za-z0-9_.]+")))
         return "am start --user current -f 0x10000000 -n $pkg/com.shilapi.xcertplay.CarPlayHostActivity"
     }
     fun launchHost(context: Context) {
-        check(ownsExemption(context)) { "未启用应用管理的 Root 保活" }
+        check(isEnabled(context)) { "未启用应用管理的 Root 保活" }
         check(DiPlayPreferences.autoConnect(context)) { "未启用自动连接" }
         check(AirPlayPersistence.loadWirelessEnabled(context)) { "后台准备仅用于已配置的无线连接" }
         val result = run(hostLaunchCommand(context.packageName))
@@ -53,7 +56,7 @@ internal object RootKeepAlive {
         record(context, "root requested wireless host initialization; interactive=${context.getSystemService(PowerManager::class.java).isInteractive}")
     }
     @Synchronized fun reapplyIfOwned(context: Context) {
-        if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("added", false)) apply(context)
+        if (isEnabled(context)) apply(context)
         else record(context, "root reapply skipped: no app-owned exemption")
     }
     @Synchronized fun restore(context: Context) {
@@ -63,6 +66,7 @@ internal object RootKeepAlive {
             check(!isListed(run("cmd deviceidle whitelist"), context.packageName)) { "恢复失败，请重试" }
             check(prefs.edit().remove("added").commit())
         }
+        check(prefs.edit().putBoolean("enabled", false).commit())
         record(context, "root exemption restored")
     }
     fun summary(context: Context): String {

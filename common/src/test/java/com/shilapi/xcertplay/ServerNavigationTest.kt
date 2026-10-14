@@ -87,7 +87,7 @@ class ServerNavigationTest {
         val tabs = tabs(activity)
         tabs.selectedItemId = 3
         val control = views(activity.window.decorView).filterIsInstance<MaterialSwitch>()
-            .single { it.contentDescription == "打开应用时自动连接" }
+            .single { it.contentDescription == "自动连接" }
         val enabled = !control.isChecked
         control.isChecked = enabled
         assertEquals(enabled, DiPlayPreferences.autoConnect(activity))
@@ -103,7 +103,7 @@ class ServerNavigationTest {
         tabs.selectedItemId = 3
         assertEquals(offset, scroll.scrollY)
         assertSame(control, views(activity.window.decorView).filterIsInstance<MaterialSwitch>()
-            .single { it.contentDescription == "打开应用时自动连接" })
+            .single { it.contentDescription == "自动连接" })
         assertTrue(views(activity.window.decorView).filterIsInstance<Button>().filterNot { it is android.widget.CompoundButton }.all { it is MaterialButton })
         controller.pause().stop().destroy()
     }

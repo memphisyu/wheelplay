@@ -55,7 +55,7 @@ class DiPlaySessionService : Service() {
     private val backgroundPreparing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var lastBackgroundPrepare = 0L
     private fun prepareWirelessInBackground(): String {
-        if (!RootKeepAlive.ownsExemption(this) || !DiPlayPreferences.autoConnect(this) || !AirPlayPersistence.loadWirelessEnabled(this))
+        if (!RootKeepAlive.isEnabled(this) || !DiPlayPreferences.autoConnect(this) || !AirPlayPersistence.loadWirelessEnabled(this))
             return "后台连接需要启用 Root 保活、打开应用时自动连接，并提前配置无线连接和权限"
         val now = android.os.SystemClock.elapsedRealtime()
         if (backgroundPreparing.get() || lastBackgroundPrepare > 0 && now - lastBackgroundPrepare < 30000) return "后台连接准备已请求，请稍候"

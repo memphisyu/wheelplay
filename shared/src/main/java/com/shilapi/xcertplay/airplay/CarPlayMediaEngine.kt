@@ -43,6 +43,7 @@ class CarPlayMediaEngine(
     private val sink: MediaSink,
     private val microphoneEnabled: Boolean = false,
     private val audioCaptureDirectory: File? = null,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) : AirPlayMediaHandler {
     internal data class StreamKey(
         val session: AirPlaySession,
@@ -146,7 +147,7 @@ class CarPlayMediaEngine(
             object : AudioStream.Listener {
                 override fun onStarted(firstSample: Int) {
                     meta.firstSample = firstSample
-                    meta.originNs = System.nanoTime()
+                    meta.originNs = nanoTime()
                     sink.onAudioStarted(type, format, firstSample)
                     microphone?.let { sink.onMicrophoneStarted(type, it) }
                 }
@@ -258,18 +259,18 @@ class CarPlayMediaEngine(
         val streams = active.map { meta ->
             val entry = linkedMapOf<String, Any?>(
                 "type" to meta.type,
-                "sampleRate" to meta.format.sampleRate,
+                "sampleRate" to meta.format.rtpClockRate,
             )
             val firstSample = meta.firstSample
             val originNs = meta.originNs
             if (firstSample != null && originNs != null) {
-                val nowNs = System.nanoTime()
+                val nowNs = nanoTime()
                 val elapsedSec = Math.max(
                     0.0,
                     (nowNs - originNs) / 1e9 - meta.playoutLatencyMs / 1000.0,
                 )
                 val firstUnsigned = firstSample.toLong() and 0xffff_ffffL
-                val sampleTime = (firstUnsigned + Math.round(elapsedSec * meta.format.sampleRate)) and
+                val sampleTime = (firstUnsigned + Math.round(elapsedSec * meta.format.rtpClockRate)) and
                     0xffff_ffffL
                 entry["streamConnectionID"] = unsignedPlistInteger(meta.connectionId ?: 0L)
                 entry["timestamp"] = session.syncedNtp()
@@ -360,6 +361,7 @@ class CarPlayMediaEngine(
             key = key,
             codec = format.codec,
             bitrate = if (format.codec == AudioCodecKind.OPUS) opusBitrate else null,
+            opusClockRate = MicrophoneConfig.opusClockRate(formatBits),
         )
     }
 

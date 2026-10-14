@@ -510,7 +510,7 @@ private class VideoDecoder(
                     "head=${annexB.take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }}",
             )
         }
-        val index = VideoInputPump.acquire(
+        val index = DecoderInputPump.acquire(
             running = { running }, drain = { drainOutput(codec) },
             dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
         )
@@ -917,11 +917,17 @@ private class AudioRenderer(
     }
 
     private fun sampleTimestampUs(sample: Int): Long =
-        (sample.toLong() and 0xffff_ffffL) * 1_000_000L / format.sampleRate
+        format.timestampMicros(sample)
 
     private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
         val codec = codec ?: return
-        val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        // DiPlay #618/#644: drain queued output and retry this packet instead of dropping it
+        // after one 10 ms wait. Keep the audio budget below the video's 500 ms budget.
+        val index = DecoderInputPump.acquire(
+            running = { running }, drain = { drainCodec(codec) },
+            dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
+            timeoutNs = DecoderInputPump.AUDIO_TIMEOUT_NS,
+        )
         if (index < 0) {
             inputDropped++
             if (inputDropped == 1) {

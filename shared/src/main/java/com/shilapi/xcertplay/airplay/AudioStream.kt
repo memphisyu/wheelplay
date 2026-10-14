@@ -17,7 +17,12 @@ data class AudioFormat(
     val channels: Int,
     val payloadType: Int,
     val audioType: String = "media",
-)
+    /** RTP clock may differ from the Opus decoder's 48 kHz PCM output. */
+    val rtpClockRate: Int = sampleRate,
+) {
+    fun timestampMicros(sample: Int): Long =
+        (sample.toLong() and 0xffff_ffffL) * 1_000_000L / rtpClockRate
+}
 
 /**
  * Binds the RTP data and RTCP control UDP ports for one CarPlay audio stream.
@@ -205,7 +210,8 @@ object AudioStreamCodec {
         val isOpus = (bits and OPUS_MONO) != 0L
         val pcm = PCM_FORMAT[bits]
         return when {
-            isOpus -> AudioFormat(AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType)
+            isOpus -> AudioFormat(AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType,
+                rtpClockRate = MicrophoneConfig.opusClockRate(bits))
             isAacLc -> AudioFormat(
                 AudioCodecKind.AAC_LC,
                 if ((bits and AAC_LC_48K_STEREO) != 0L) 48_000 else 44_100,

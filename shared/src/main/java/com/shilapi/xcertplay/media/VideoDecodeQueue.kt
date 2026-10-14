@@ -51,7 +51,8 @@ internal class VideoDecodeQueue(
 }
 
 /** Drain output while waiting for input: full output buffers can otherwise starve input forever. */
-internal object VideoInputPump {
+internal object DecoderInputPump {
+    const val AUDIO_TIMEOUT_NS = 100_000_000L
     fun acquire(
         running: () -> Boolean,
         drain: () -> Unit,

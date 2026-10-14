@@ -69,6 +69,8 @@ open class CarPlayVpnService : VpnService() {
         .setBlocking(true)
         .addAddress(linkLocal, LINK_PREFIX)
         .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+        // DiPlay #168: reject failed scoping instead of establishing a tunnel for every UID.
+        .addAllowedApplication(packageName)
         .establish() ?: throw IOException("CarPlay VPN 未获授权")
 
     override fun onBind(intent: Intent?): IBinder? =

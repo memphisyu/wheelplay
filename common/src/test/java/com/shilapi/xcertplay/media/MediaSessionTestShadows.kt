@@ -25,6 +25,7 @@ import org.robolectric.shadows.ShadowTransportControls
 class RecordingMediaSession : ShadowMediaSession() {
     @RealObject lateinit var real: MediaSession
     var recordedMetadata: MediaMetadata? = null
+    var metadataPublications = 0
     var playback: PlaybackState? = null
     var callback: MediaSession.Callback? = null
     var handler: Handler? = null
@@ -35,7 +36,9 @@ class RecordingMediaSession : ShadowMediaSession() {
     var volume: VolumeProvider? = null
     private fun register() { sessions[real.sessionToken] = this }
 
-    @Implementation fun setMetadata(value: MediaMetadata?) { register(); recordedMetadata = value }
+    @Implementation fun setMetadata(value: MediaMetadata?) {
+        register(); recordedMetadata = value; metadataPublications++
+    }
     @Implementation fun setPlaybackState(value: PlaybackState?) { register(); playback = value }
     @Implementation fun setCallback(value: MediaSession.Callback?, handler: Handler?) {
         register(); callback = value; this.handler = handler

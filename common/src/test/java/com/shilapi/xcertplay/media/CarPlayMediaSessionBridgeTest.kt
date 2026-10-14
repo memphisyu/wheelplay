@@ -17,6 +17,82 @@ import java.util.concurrent.CompletableFuture
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [RecordingMediaSession::class, LinkedMediaController::class, LinkedTransportControls::class])
 class CarPlayMediaSessionBridgeTest {
+    @Test fun positionStatusAndOutputRouteChangesDoNotRepublishArtworkMetadata() {
+        val context = RuntimeEnvironment.getApplication()
+        val source = Source(); val output = Output()
+        val bridge = CarPlayMediaSessionBridge(context) { _, _, _ -> }
+        try {
+            bridge.bind(source, output); source.update(playing()); idle()
+            val recorded = org.robolectric.shadow.api.Shadow.extract<RecordingMediaSession>(bridge.session)
+            val first = recorded.recordedMetadata
+            val publications = recorded.metadataPublications
+            repeat(20) {
+                source.update(playing().copy(positionMs = 3000L + it, positionAtMs = 2000L + it)); idle()
+            }
+            source.update(source.state.copy(status = PhonePlaybackStatus.PAUSED)); idle()
+            output.route!!(true); idle()
+            assertEquals(publications, recorded.metadataPublications)
+            assertSame(first, recorded.recordedMetadata)
+            assertEquals(3019L, recorded.playback!!.position)
+            assertEquals(PlaybackState.STATE_PAUSED, recorded.playback!!.state)
+            source.update(source.state.copy(title = "New title")); idle()
+            assertEquals(publications + 1, recorded.metadataPublications)
+            assertEquals("New title", recorded.recordedMetadata!!.getString(MediaMetadata.METADATA_KEY_TITLE))
+            source.update(source.state.copy(durationMs = 200000)); idle()
+            assertEquals(publications + 2, recorded.metadataPublications)
+        } finally { bridge.close() }
+    }
+
+    @Test fun disconnectAndIdenticalSongFromReplacementSourceRepublishMetadata() {
+        val context = RuntimeEnvironment.getApplication()
+        val old = Source(); val next = Source()
+        val bridge = CarPlayMediaSessionBridge(context) { _, _, _ -> }
+        try {
+            bridge.bind(old, Output()); old.update(playing()); idle()
+            val recorded = org.robolectric.shadow.api.Shadow.extract<RecordingMediaSession>(bridge.session)
+            val firstId = recorded.recordedMetadata!!.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)
+            old.update(NowPlayingState()); idle()
+            assertNull(recorded.recordedMetadata)
+            val count = recorded.metadataPublications
+            old.update(NowPlayingState()); idle()
+            assertEquals(count, recorded.metadataPublications)
+            bridge.bind(next, Output()); next.update(playing()); idle()
+            assertEquals(count + 1, recorded.metadataPublications)
+            assertNotEquals(firstId, recorded.recordedMetadata!!.getString(MediaMetadata.METADATA_KEY_MEDIA_ID))
+            val afterBind = recorded.metadataPublications
+            next.update(playing().copy(connectionGeneration = 1)); idle()
+            assertEquals(afterBind + 1, recorded.metadataPublications)
+        } finally { bridge.close() }
+    }
+
+    @Test fun completedArtworkDecodePublishesOnceAndPositionUpdatesReuseTheBitmap() {
+        val context = RuntimeEnvironment.getApplication()
+        val source = Source()
+        val bridge = CarPlayMediaSessionBridge(context) { _, _, _ -> }
+        try {
+            bridge.bind(source, Output()); source.update(playing()); idle()
+            val recorded = org.robolectric.shadow.api.Shadow.extract<RecordingMediaSession>(bridge.session)
+            val fallback = recorded.recordedMetadata!!.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            val bitmap = android.graphics.Bitmap.createBitmap(2, 2, android.graphics.Bitmap.Config.ARGB_8888)
+            val bytes = java.io.ByteArrayOutputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it); it.toByteArray()
+            }
+            bitmap.recycle()
+            source.update(playing().copy(artwork = MediaArtwork(bytes))); idle()
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+            while (recorded.recordedMetadata!!.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) === fallback &&
+                System.nanoTime() < deadline) {
+                Thread.sleep(10); idle()
+            }
+            val cover = recorded.recordedMetadata!!.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            assertNotSame(fallback, cover)
+            val count = recorded.metadataPublications
+            source.update(source.state.copy(positionMs = 4000)); idle()
+            assertEquals(count, recorded.metadataPublications)
+            assertSame(cover, recorded.recordedMetadata!!.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART))
+        } finally { bridge.close() }
+    }
+
     private class Source : CarPlayMediaSource {
         var state = NowPlayingState()
         val listeners = mutableListOf<(NowPlayingState) -> Unit>()

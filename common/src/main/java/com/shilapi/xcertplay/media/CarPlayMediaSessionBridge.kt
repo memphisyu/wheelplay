@@ -45,6 +45,11 @@ internal class CarPlayMediaSessionBridge(
     private var pauseRequest = 0L
     private var artwork: MediaArtwork? = null
     private var cover: Bitmap? = null
+    private data class PublishedMetadata(
+        val connection: Long, val mediaId: String, val title: String?, val artist: String?,
+        val album: String?, val duration: Long?, val artwork: Bitmap,
+    )
+    private var publishedMetadata: PublishedMetadata? = null
     private var closed = false
     private val localRequestQueued = AtomicBoolean(false)
     private val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
@@ -195,20 +200,30 @@ internal class CarPlayMediaSessionBridge(
     private fun render() {
         session.isActive = state.available
         if (!state.available) {
-            session.setMetadata(null)
+            if (publishedMetadata != null) session.setMetadata(null)
+            publishedMetadata = null
             session.setPlaybackState(PlaybackState.Builder().setState(PlaybackState.STATE_NONE, 0, 0f).build())
             changed(state, null, null)
             return
         }
-        val metadata = MediaMetadata.Builder()
-            .putString(MediaMetadata.METADATA_KEY_MEDIA_ID, "${epoch}:${state.trackRevision}:${state.persistentId}")
-            .putString(MediaMetadata.METADATA_KEY_TITLE, state.title?.takeIf { it.isNotBlank() } ?: state.appName)
-            .putString(MediaMetadata.METADATA_KEY_ARTIST, state.artist)
-            .putString(MediaMetadata.METADATA_KEY_ALBUM, state.album)
-            .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, cover ?: defaultArtwork)
-            .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, cover ?: defaultArtwork)
-        state.durationMs?.takeIf { it > 0 }?.let { metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, it) }
-        session.setMetadata(metadata.build())
+        val nextMetadata = PublishedMetadata(
+            state.connectionGeneration, "${epoch}:${state.trackRevision}:${state.persistentId}",
+            state.title?.takeIf { it.isNotBlank() } ?: state.appName, state.artist, state.album,
+            state.durationMs?.takeIf { it > 0 }, cover ?: defaultArtwork,
+        )
+        // DiPlay #162: position-only updates must not repeatedly parcel album bitmaps.
+        if (nextMetadata != publishedMetadata) {
+            val metadata = MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_MEDIA_ID, nextMetadata.mediaId)
+                .putString(MediaMetadata.METADATA_KEY_TITLE, nextMetadata.title)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, nextMetadata.artist)
+                .putString(MediaMetadata.METADATA_KEY_ALBUM, nextMetadata.album)
+                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, nextMetadata.artwork)
+                .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, nextMetadata.artwork)
+            nextMetadata.duration?.let { metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, it) }
+            session.setMetadata(metadata.build())
+            publishedMetadata = nextMetadata
+        }
         val playback = when (state.status) {
             PhonePlaybackStatus.PLAYING -> PlaybackState.STATE_PLAYING
             PhonePlaybackStatus.PAUSED -> PlaybackState.STATE_PAUSED

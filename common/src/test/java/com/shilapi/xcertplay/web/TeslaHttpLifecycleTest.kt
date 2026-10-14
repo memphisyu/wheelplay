@@ -32,6 +32,7 @@ class TeslaHttpLifecycleTest {
         val addresses = mutableListOf<Pair<String, Int>>()
         val routes = mutableListOf<Pair<String, Int>>()
         val families = mutableSetOf<Int>()
+        val allowedApplications = mutableListOf<String>()
         @Implementation fun addAddress(address: String, prefix: Int): android.net.VpnService.Builder {
             addresses.add(address to prefix); return builder
         }
@@ -40,6 +41,9 @@ class TeslaHttpLifecycleTest {
         }
         @Implementation fun allowFamily(family: Int): android.net.VpnService.Builder {
             families.add(family); return builder
+        }
+        @Implementation fun addAllowedApplication(packageName: String): android.net.VpnService.Builder {
+            allowedApplications.add(packageName); return builder
         }
         @Implementation fun establish(): ParcelFileDescriptor {
             plans.add(this)
@@ -64,6 +68,7 @@ class TeslaHttpLifecycleTest {
             assertEquals(listOf("fe80::1" to 64), plan.addresses)
             assertEquals(listOf("fe80::" to 64), plan.routes)
             assertEquals(setOf(android.system.OsConstants.AF_INET, android.system.OsConstants.AF_INET6), plan.families)
+            assertEquals(listOf(controller.get().packageName), plan.allowedApplications)
         } finally {
             controller.destroy()
             AllocatingBuilderShadow.peers.forEach { it.close() }

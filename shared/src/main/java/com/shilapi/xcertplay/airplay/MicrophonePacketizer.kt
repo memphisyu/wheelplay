@@ -14,6 +14,8 @@ data class MicrophoneConfig(
     val key: ByteArray,
     val codec: AudioCodecKind = AudioCodecKind.LPCM,
     val bitrate: Int? = null,
+    /** Negotiated CarPlay RTP clock; Opus capture/encoding remains at 48 kHz. */
+    val opusClockRate: Int = 48_000,
 ) {
     val samplesPerPacket: Int
         get() = if (codec == AudioCodecKind.OPUS) {
@@ -25,8 +27,19 @@ data class MicrophoneConfig(
     val frameBytes: Int
         get() = samplesPerPacket * channels * 2
 
-    private companion object {
-        const val OPUS_SAMPLES_PER_PACKET = 960
+    val rtpSamplesPerPacket: Int
+        get() = if (codec == AudioCodecKind.OPUS) opusClockRate * 20 / 1000 else samplesPerPacket
+
+    companion object {
+        private const val OPUS_SAMPLES_PER_PACKET = 960
+
+        /** DiPlay #295/#547: CarPlay timestamps follow its 16/24/48 kHz format bits. */
+        fun opusClockRate(formatBits: Long): Int = when {
+            formatBits and 0x40000000L != 0L -> 48_000
+            formatBits and 0x20000000L != 0L -> 24_000
+            formatBits and 0x10000000L != 0L -> 16_000
+            else -> 48_000
+        }
     }
 }
 

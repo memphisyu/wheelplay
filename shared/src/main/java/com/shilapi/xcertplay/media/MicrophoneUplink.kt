@@ -177,7 +177,7 @@ internal class MicrophoneUplink(
                 socket = socket,
                 counters = counters,
                 body = body,
-                samples = config.samplesPerPacket,
+                samples = config.rtpSamplesPerPacket,
             )
         }
     }

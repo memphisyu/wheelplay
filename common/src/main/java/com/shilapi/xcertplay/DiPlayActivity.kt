@@ -446,6 +446,15 @@ class DiPlayActivity : AppCompatActivity() {
     private fun settings(content: LinearLayout) {
         content.addView(label("设置", 30, TEXT, true))
         content.addView(label("昼夜模式、音频输出和浏览器离线策略立即生效。修改画面、麦克风来源或串流参数会重新连接；其他设置在下次连接生效。", 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
+        ui.card(content, "本项目基于 DiPlay 修改", R.drawable.ic_server_launch) { body ->
+            body.addView(label("如果车机可以直接安装任意 Android 应用，可以尝试直接使用 DiPlay 以获得更佳的体验。本项目旨在通过浏览器提供无侵入 CarPlay 支持。", 15, MUTED))
+            body.contentDescription = "本项目基于 DiPlay 修改。点击打开 DiPlay GitHub 项目"
+            body.setOnClickListener {
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/shihabal3amri/DiPlay")))
+                }.onFailure { toast("未找到可打开网页的浏览器") }
+            }
+        }
         section(content, "CarPlay 认证资源") { card ->
             card.addView(label(if (DiPlayBootstrap.importing) "正在本机导入…" else if (setupError == null)
                 "资源已就绪 · 私钥与证书校验通过" else "尚未配置有效资源", 16, if (setupError == null) TEXT else WARNING))

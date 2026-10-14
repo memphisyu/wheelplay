@@ -5,6 +5,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VideoDecodeQueueTest {
+    @Test fun audioRetriesTheSamePacketAfterOutputBackpressureWithin100Milliseconds() {
+        var now = 0L
+        var heldOutput = true
+        var drains = 0
+        val index = DecoderInputPump.acquire(
+            running = { true },
+            drain = { drains++; if (now >= 30_000_000L) heldOutput = false },
+            dequeue = { now += 10_000_000L; if (heldOutput) -1 else 3 },
+            nanoTime = { now }, timeoutNs = DecoderInputPump.AUDIO_TIMEOUT_NS,
+        )
+        assertEquals(3, index)
+        assertEquals(4, drains)
+        assertEquals(40_000_000L, now)
+    }
+
+    @Test fun stalledAudioStopsAfter100MillisecondsInsteadOfTheVideoBudget() {
+        var now = 0L
+        var attempts = 0
+        assertEquals(-1, DecoderInputPump.acquire(
+            running = { true }, drain = {}, dequeue = { attempts++; now += 10_000_000L; -1 },
+            nanoTime = { now }, timeoutNs = DecoderInputPump.AUDIO_TIMEOUT_NS,
+        ))
+        assertEquals(10, attempts)
+        assertEquals(100_000_000L, now)
+    }
+
     @Test fun lostReferenceChainWaitsForSuccessfullyQueuedKeyframe() {
         val chain = VideoReferenceChain()
         val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 1)
@@ -50,7 +76,7 @@ class VideoDecodeQueueTest {
         var dequeues = 0
         val submitted = mutableListOf<Int>()
         for (frame in 1..3) {
-            val index = VideoInputPump.acquire(
+            val index = DecoderInputPump.acquire(
                 running = { true },
                 drain = { if (heldOutputs > 0) heldOutputs-- },
                 dequeue = { dequeues++; if (heldOutputs > 0) -1 else 0 },
@@ -66,11 +92,11 @@ class VideoDecodeQueueTest {
     @Test fun stalledDecoderHasFiniteWaitAndShutdownCancelsImmediately() {
         var time = 0L
         var attempts = 0
-        assertEquals(-1, VideoInputPump.acquire(
+        assertEquals(-1, DecoderInputPump.acquire(
             running = { true }, drain = {}, dequeue = { attempts++; -1 },
             nanoTime = { time.also { time += 10 } }, timeoutNs = 30,
         ))
         assertEquals(3, attempts)
-        assertEquals(-1, VideoInputPump.acquire(running = { false }, drain = { fail() }, dequeue = { fail(); 0 }))
+        assertEquals(-1, DecoderInputPump.acquire(running = { false }, drain = { fail() }, dequeue = { fail(); 0 }))
     }
 }

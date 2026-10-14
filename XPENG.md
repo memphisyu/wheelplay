@@ -1,3 +1,5 @@
+> **1.0.1 候选版：**[下载](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.1) · [更新与验证说明](docs/XPENG-1.0.1-RC1.md)。合入上游音频与连接可靠性修复；1.0 仍为正式版，候选版需继续实车验证。
+
 # Wheelplay 小鹏定制版
 
 当前最新版本为 **1.0 正式版**，包名 `moe.feng.wheelplay.xpengaudio`，修订分支 `xpeng`。

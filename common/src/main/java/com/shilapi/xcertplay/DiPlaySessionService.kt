@@ -103,14 +103,17 @@ class DiPlaySessionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     @SuppressLint("WakelockTimeout") // Owned by this foreground service, released in onDestroy.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        RootKeepAlive.record(this, "service start action=${intent?.action ?: "default-or-sticky"} startId=$startId flags=$flags")
         if (intent?.action == ACTION_STOP) {
+            RootKeepAlive.record(this, "service stop requested: notification stop")
             media.close()
             runWebAction { WebSession.stop() }
             CarPlayBackgroundSession.stop()
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_MEDIA && !currentState.available && !CarPlayBackgroundSession.hasSession()) {
+        if (intent?.action == ACTION_MEDIA && !currentState.available && !CarPlayBackgroundSession.hasSession() && !WebSession.running) {
+            RootKeepAlive.record(this, "service stop requested: stale media command with no server/session")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -123,6 +126,7 @@ class DiPlaySessionService : Service() {
         // Never open listeners or acquire a wake lock without a validated identity.
         if (!(DiPlayBootstrap.importing && WebSession.running) &&
             runCatching { DiPlayBootstrap.ensure(this) }.isFailure) {
+            RootKeepAlive.record(this, "service stop requested: authentication validation failed")
             activationBlocked = true
             WebSession.stop()
             CarPlayBackgroundSession.stop()
@@ -139,7 +143,7 @@ class DiPlaySessionService : Service() {
                     MediaCommand.entries.firstOrNull { it.name == name }?.let(media::command)
                 }
             }
-            return START_NOT_STICKY
+            return START_STICKY
         }
         Thread({
             runCatching { RootKeepAlive.reapplyIfOwned(this) }.onFailure {

@@ -155,7 +155,7 @@ export function createBrowserAudio({
       if (mseMusic && (mseStream !== frame.stream || mseMusic.rate !== frame.rate || mseMusic.channels !== frame.channels)) { mseMusic.close(); mseMusic = null; }
       if (!mseMusic) {
         mseStream = frame.stream;
-        mseMusic = createMseMusic({ rate: frame.rate, channels: frame.channels, onError: (error, autoplay) => {
+        mseMusic = createMseMusic({ rate: frame.rate, channels: frame.channels, mediaBufferMillis, onError: (error, autoplay) => {
           if (autoplay) { state(error); return; }
           mseMusic = null; mseFailed = true; state('原生音乐播放失败，已降级：' + error);
         }});
@@ -188,6 +188,7 @@ export function createBrowserAudio({
       const nextBufferMillis = [300, 500, 1000].includes(message.mediaBufferMillis) ? message.mediaBufferMillis : 300;
       if (nextBufferMillis !== mediaBufferMillis) {
         mediaBufferMillis = nextBufferMillis;
+        mseMusic?.setBufferMillis(mediaBufferMillis);
         for (const id of new Set([...nodes].filter(node => node.media).map(node => node.stream))) stopPlayback(id);
       }
       if (testMode) { desiredPlayback = message.playback === true; desiredMicrophone = message.microphone === true; return true; }
@@ -233,11 +234,10 @@ export function createBrowserAudio({
     unlock() {
       if (!connected || testMode) return;
       mseMusic?.start();
-      if (gestureRetry) return;
-      gestureRetry = true;
-      mseMusic?.start();
-      if (desiredPlayback && !playback) setPlayback(true);
-      if (desiredMicrophone && !microphone) setMicrophone(true);
+      // A running route can outlive its AudioContext (browser suspension).
+      // Retry from every user gesture, including after a rejected resume.
+      if (desiredPlayback && (!playback || context?.state !== 'running')) setPlayback(true);
+      if (desiredMicrophone && (!microphone || context?.state !== 'running')) setMicrophone(true);
     },
     get playback() { return playback; }, get microphone() { return microphone; },
   };

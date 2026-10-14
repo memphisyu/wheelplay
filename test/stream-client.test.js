@@ -3,10 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
-  .replaceAll('export function', 'function') + '\n' +
-  readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
-    .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
+import {browserFixtureSource as source} from './browser-fixture.js';
 function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable = true,
   fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
@@ -41,7 +38,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
     async setLocalDescription() {}
     close() { this.closed = true; }
   }
-  const document = { getElementById: element, fullscreenElement: null, documentElement: {},
+  const document = { getElementById: element, querySelectorAll() { return []; }, fullscreenElement: null, documentElement: {},
     addEventListener(name, fn) { documentEvents[name] = fn; },
     exitFullscreen() {
       fullscreenCalls.push('exit'); this.fullscreenElement = null;

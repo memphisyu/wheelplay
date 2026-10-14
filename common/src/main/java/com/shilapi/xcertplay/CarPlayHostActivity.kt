@@ -2833,6 +2833,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
             override fun onSessionEnded(session: AirPlaySession) {
                 runOnUiThread {
+                    if (controllerGeneration != restartGeneration) return@runOnUiThread
                     if (activeAirPlaySession === session) activeAirPlaySession = null
                     CarPlayBackgroundSession.active = false
                     WebSession.videoActive = false
@@ -3060,7 +3061,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         pendingDisplaySize = size
         mainHandler.removeCallbacks(applyDisplaySize)
-        mainHandler.postDelayed(applyDisplaySize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
+        mainHandler.postDelayed(applyDisplaySize, if (controller != null) BROWSER_DISPLAY_STABLE_MILLIS else DISPLAY_CHANGE_DEBOUNCE_MILLIS)
     }
 
     private fun scheduleBrowserDisplaySize(width: Int?, height: Int?) {
@@ -3083,7 +3084,7 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog("Adaptive browser display requested: ${size.width}x${size.height}")
         pendingDisplaySize = size
         mainHandler.removeCallbacks(applyDisplaySize)
-        mainHandler.postDelayed(applyDisplaySize, BROWSER_DISPLAY_CHANGE_DEBOUNCE_MILLIS)
+        mainHandler.postDelayed(applyDisplaySize, if (controller != null) BROWSER_DISPLAY_STABLE_MILLIS else BROWSER_DISPLAY_CHANGE_DEBOUNCE_MILLIS)
     }
 
     private fun applyDisplaySize(size: DisplaySize) {
@@ -3196,7 +3197,7 @@ class CarPlayHostActivity : ComponentActivity() {
             runOnUiThread {
                 if (!shuttingDown.get() && generation == restartGeneration) {
                     handshakeResetInProgress = false
-                    startCarPlay(size)
+                    activeDisplaySize?.let(::startCarPlay)
                 }
             }
         }
@@ -3256,6 +3257,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        RootKeepAlive.record(this, "host shutdown reason=$reason terminateProcess=$terminateProcess")
         restartGeneration += 1
         mainHandler.removeCallbacks(applyDisplaySize)
         val oldController = controller
@@ -3493,6 +3495,7 @@ class CarPlayHostActivity : ComponentActivity() {
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         const val BROWSER_DISPLAY_CHANGE_DEBOUNCE_MILLIS = 900L
+        const val BROWSER_DISPLAY_STABLE_MILLIS = 4000L
         const val RECONNECT_DELAY_MILLIS = 2_000L
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L

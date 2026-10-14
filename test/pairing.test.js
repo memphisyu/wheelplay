@@ -3,10 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
-  .replaceAll('export function', 'function') + '\n' +
-  readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
-    .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
+import {browserFixtureSource as source} from './browser-fixture.js';
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const savedDevice = { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Chrome · Android' };
 const ok = data => ({ ok: true, json: async () => data });
@@ -25,7 +22,7 @@ function fixture({ status = () => ok({ state: 'pending' }), stored = null, resum
     constructor(url) { this.url = url; sockets.push(this); }
     close() {}
   }
-  const context = { document: { getElementById: element, addEventListener() {} },
+  const context = { document: { getElementById: element, querySelectorAll() { return []; }, addEventListener() {} },
     window: { location: { search, pathname: '/', hash: '' }, history: { replaceState() {} },
       addEventListener(name, fn) { windowEvents[name] = fn; },
       localStorage: {
@@ -35,7 +32,7 @@ function fixture({ status = () => ok({ state: 'pending' }), stored = null, resum
       },
     }, location: { host: 'server:8080', href }, URL, Date, WebSocket: Socket,
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
-    clearTimeout(id) { timers.delete(id); }, clearInterval() {},
+    clearTimeout(id) { timers.delete(id); }, setInterval() { return 0; }, clearInterval() {},
     fetch: async (url, options) => {
       requests.push({ url, options });
       if (url === '/tls.json') return ok(tls);

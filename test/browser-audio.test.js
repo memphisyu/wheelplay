@@ -213,3 +213,16 @@ test('probe mode stops CarPlay PCM and blocks gesture restart; exit restores lat
  assert.equal(audio.playback,true); audio.receive(packet([100],3,{media:true})); assert.equal(sources.length,2);
  audio.close();
 });
+
+ test('a gesture resumes a suspended playback route and retries a rejected resume', async () => {
+  const {audio,context,sources} = await playbackPlayer(300);
+  let attempts=0;
+  context.state='suspended';
+  context.resume=async () => { attempts++; if(attempts===1) throw Error('blocked'); context.state='running'; };
+  audio.unlock(); await new Promise(setImmediate);
+  assert.equal(attempts,1);
+  audio.unlock(); await new Promise(setImmediate);
+  assert.equal(attempts,2); assert.equal(context.state,'running');
+  audio.receive(packet(new Int16Array(960),10));
+  assert.equal(sources.length,1); audio.close();
+ });

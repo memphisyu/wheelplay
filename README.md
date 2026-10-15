@@ -1,4 +1,4 @@
-> **1.0.1 RC5 release candidate:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.5) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.5) · [Changes and verification](docs/XPENG-1.0.1-RC5.md). Fixes interrupted music playback and stale error messages introduced in RC4. All 609 automated tests pass; vehicle validation is still required. Version 1.0 remains the stable release.
+> **1.0.1 RC6 release candidate:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.6) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.6) · [Changes and verification](docs/XPENG-1.0.1-RC6.md). Adds manual in-app updates through GitHub and Gitee, with APK integrity and signing checks. Version 1.0 remains the stable release; device installation validation is still required.
 
 # Wheelplay 小鹏定制版
 

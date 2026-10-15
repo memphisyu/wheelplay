@@ -1,0 +1,86 @@
+[
+  {
+    "tag_name": "v1.0.0",
+    "name": "Wheelplay 小鹏定制版 1.0",
+    "prerelease": false,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.0.sha256",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.0/v1.0.0.sha256"
+      },
+      {
+        "name": "v1.0.0-source.zip",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.0/v1.0.0-source.zip"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.apk",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.0/WheelPlay-Xpeng-v1.0.apk"
+      },
+      {
+        "name": "v1.0.0.zip",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/archive/refs/tags/v1.0.0.zip"
+      },
+      {
+        "name": "v1.0.0.tar.gz",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/archive/refs/tags/v1.0.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "tag_name": "v1.0.1-rc.4",
+    "name": "Wheelplay 小鹏定制版 1.0.1 RC4 · 稳定性与音频恢复修复",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.1-rc.4.sha256",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.4/v1.0.1-rc.4.sha256"
+      },
+      {
+        "name": "v1.0.1-rc.4-source.zip",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.4/v1.0.1-rc.4-source.zip"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.1-rc.4.apk",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.4/WheelPlay-Xpeng-v1.0.1-rc.4.apk"
+      },
+      {
+        "name": "v1.0.1-rc.4.zip",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/archive/refs/tags/v1.0.1-rc.4.zip"
+      },
+      {
+        "name": "v1.0.1-rc.4.tar.gz",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/archive/refs/tags/v1.0.1-rc.4.tar.gz"
+      }
+    ]
+  },
+  {
+    "tag_name": "v1.0.1-rc.5",
+    "name": "Wheelplay 小鹏定制版 1.0.1 RC5 · 音乐中断修复",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.1-rc.5.sha256",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.5/v1.0.1-rc.5.sha256"
+      },
+      {
+        "name": "v1.0.1-rc.5-source.zip",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.5/v1.0.1-rc.5-source.zip"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.1-rc.5.apk",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.5/WheelPlay-Xpeng-v1.0.1-rc.5.apk"
+      },
+      {
+        "name": "v1.0.1-rc.5.zip",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/archive/refs/tags/v1.0.1-rc.5.zip"
+      },
+      {
+        "name": "v1.0.1-rc.5.tar.gz",
+        "browser_download_url": "https://gitee.com/memphisyu/wheelplay/archive/refs/tags/v1.0.1-rc.5.tar.gz"
+      }
+    ]
+  }
+]

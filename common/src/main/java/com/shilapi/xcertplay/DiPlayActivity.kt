@@ -57,6 +57,7 @@ class DiPlayActivity : AppCompatActivity() {
             super.createIntent(context, input).addCategory(Intent.CATEGORY_OPENABLE)
     }
     private val ui by lazy { ServerUi(this) }
+    private val appUpdates by lazy { com.shilapi.xcertplay.update.AppUpdateUi(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var page = "service"
     private lateinit var shell: ServerUi.Shell
@@ -253,6 +254,7 @@ class DiPlayActivity : AppCompatActivity() {
                 "已请求连接 iPhone；如有提示，请在 Android 上完成设备选择或授权，并在 iPhone 上允许 CarPlay"
             }
         }
+        appUpdates.resume()
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch) { refreshPhone(); refreshService() }
         if (initialLaunch) {
@@ -265,8 +267,8 @@ class DiPlayActivity : AppCompatActivity() {
             }
         }
     }
-    override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
-    override fun onDestroy() { pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
+    override fun onPause() { appUpdates.pause(); WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
+    override fun onDestroy() { appUpdates.close(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home", "wireless-recovery" -> "phone"
@@ -645,6 +647,7 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(button("系统蓝牙设置", false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, ui.secondaryButtonLayout(12))
             card.addView(button("无线连接帮助", false) { wirelessHelp() }, ui.secondaryButtonLayout(12))
         }
+        section(content, "应用更新") { card -> appUpdates.bind(card) }
         section(content, "关于与诊断") { card ->
             card.addView(label("${getString(R.string.app_name)} · ${version()}", 17, TEXT, true))
             exportButton = button(if (exportInProgress) "正在保存报告…" else "保存诊断报告", false) {

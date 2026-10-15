@@ -1,0 +1,262 @@
+[
+  {
+    "tag_name": "v1.0.1-rc.5",
+    "name": "Wheelplay 小鹏定制版 1.0.1 RC5 · 音乐中断修复",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.1-rc.5-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.5/v1.0.1-rc.5-source.zip"
+      },
+      {
+        "name": "v1.0.1-rc.5.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.5/v1.0.1-rc.5.sha256"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.1-rc.5.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.5/WheelPlay-Xpeng-v1.0.1-rc.5.apk"
+      }
+    ]
+  },
+  {
+    "tag_name": "v1.0.1-rc.4",
+    "name": "Wheelplay 小鹏定制版 1.0.1 RC4 · 稳定性与音频恢复修复",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.1-rc.4-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.4/v1.0.1-rc.4-source.zip"
+      },
+      {
+        "name": "v1.0.1-rc.4.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.4/v1.0.1-rc.4.sha256"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.1-rc.4.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.4/WheelPlay-Xpeng-v1.0.1-rc.4.apk"
+      }
+    ]
+  },
+  {
+    "tag_name": "v1.0.1-rc.2",
+    "name": "Wheelplay 小鹏定制版 1.0.1 RC2 · 画面适配修复",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.1-rc.2-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.2/v1.0.1-rc.2-source.zip"
+      },
+      {
+        "name": "v1.0.1-rc.2.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.2/v1.0.1-rc.2.sha256"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.1-rc.2.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.2/WheelPlay-Xpeng-v1.0.1-rc.2.apk"
+      }
+    ]
+  },
+  {
+    "tag_name": "v1.0.1-rc.1",
+    "name": "Wheelplay 小鹏定制版 1.0.1 候选版",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.1-rc.1-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.1/v1.0.1-rc.1-source.zip"
+      },
+      {
+        "name": "v1.0.1-rc.1.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.1/v1.0.1-rc.1.sha256"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.1-rc.1.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.1-rc.1/WheelPlay-Xpeng-v1.0.1-rc.1.apk"
+      }
+    ]
+  },
+  {
+    "tag_name": "v1.0.0",
+    "name": "Wheelplay 小鹏定制版 1.0",
+    "prerelease": false,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v1.0.0-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.0/v1.0.0-source.zip"
+      },
+      {
+        "name": "v1.0.0.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.0/v1.0.0.sha256"
+      },
+      {
+        "name": "WheelPlay-Xpeng-v1.0.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v1.0.0/WheelPlay-Xpeng-v1.0.apk"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio8-upstream",
+    "name": "audio8：上游同步测试版",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio8-upstream-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio8-upstream/v0.3.0-xpeng-audio8-upstream-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio8-upstream.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio8-upstream/v0.3.0-xpeng-audio8-upstream.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio8-upstream.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio8-upstream/v0.3.0-xpeng-audio8-upstream.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio7-artwork",
+    "name": "audio7：媒体控件专辑封面测试版",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio7-artwork-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio7-artwork/v0.3.0-xpeng-audio7-artwork-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio7-artwork.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio7-artwork/v0.3.0-xpeng-audio7-artwork.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio7-artwork.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio7-artwork/v0.3.0-xpeng-audio7-artwork.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio6-mse",
+    "name": "audio6：MSE 音乐与方向盘控制测试版",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio6-mse-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio6-mse/v0.3.0-xpeng-audio6-mse-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio6-mse.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio6-mse/v0.3.0-xpeng-audio6-mse.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio6-mse.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio6-mse/v0.3.0-xpeng-audio6-mse.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio5-media-probe",
+    "name": "v0.3.0-xpeng-audio5-media-probe",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio5-media-probe-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio5-media-probe/v0.3.0-xpeng-audio5-media-probe-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio5-media-probe.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio5-media-probe/v0.3.0-xpeng-audio5-media-probe.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio5-media-probe.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio5-media-probe/v0.3.0-xpeng-audio5-media-probe.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio4-player",
+    "name": "v0.3.0-xpeng-audio4-player",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio4-player-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio4-player/v0.3.0-xpeng-audio4-player-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio4-player.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio4-player/v0.3.0-xpeng-audio4-player.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio4-player.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio4-player/v0.3.0-xpeng-audio4-player.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio3-media",
+    "name": "v0.3.0-xpeng-audio3-media",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio3-media-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio3-media/v0.3.0-xpeng-audio3-media-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio3-media.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio3-media/v0.3.0-xpeng-audio3-media.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio3-media.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio3-media/v0.3.0-xpeng-audio3-media.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio2-lockscreen",
+    "name": "v0.3.0-xpeng-audio2-lockscreen",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio2-lockscreen-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio2-lockscreen/v0.3.0-xpeng-audio2-lockscreen-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio2-lockscreen.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio2-lockscreen/v0.3.0-xpeng-audio2-lockscreen.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio2-lockscreen.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio2-lockscreen/v0.3.0-xpeng-audio2-lockscreen.sha256"
+      }
+    ]
+  },
+  {
+    "tag_name": "v0.3.0-xpeng-audio1",
+    "name": "v0.3.0-xpeng-audio1",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "v0.3.0-xpeng-audio1-source.zip",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio1/v0.3.0-xpeng-audio1-source.zip"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio1.apk",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio1/v0.3.0-xpeng-audio1.apk"
+      },
+      {
+        "name": "v0.3.0-xpeng-audio1.sha256",
+        "browser_download_url": "https://github.com/memphisyu/wheelplay/releases/download/v0.3.0-xpeng-audio1/v0.3.0-xpeng-audio1.sha256"
+      }
+    ]
+  }
+]

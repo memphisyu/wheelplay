@@ -526,7 +526,7 @@ if (typeof document !== 'undefined') {
   function diagnosticSnapshot() {
     browserMedia.expire();
     const viewport = display.getBoundingClientRect();
-    return { version: '1.0.1-rc.5', at: new Date().toISOString(),
+    return { version: '1.0.1-rc.6', at: new Date().toISOString(),
       display: { viewportWidth: viewport.width, viewportHeight: viewport.height,
         devicePixelRatio: window.devicePixelRatio || 1,
         streamWidth: width, streamHeight: height, hidden: document.hidden },

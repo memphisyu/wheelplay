@@ -1,4 +1,4 @@
-> **1.0.1 RC6 release candidate:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.6) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.6) · [Changes and verification](docs/XPENG-1.0.1-RC6.md). Adds manual in-app updates through GitHub and Gitee, with APK integrity and signing checks. Version 1.0 remains the stable release; device installation validation is still required.
+> **1.0.1 stable release:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Release notes](docs/XPENG-1.0.1.md). Includes in-app updates, music playback and viewport fixes, upstream wireless/microphone/USB reliability, and opt-in experimental no-root browser compatibility. The VPN mode does not map ports 80/443; vehicle compatibility still requires device testing.
 
 # Wheelplay 小鹏定制版
 
@@ -8,16 +8,17 @@ WheelPlay is an Android-hosted CarPlay server for local networks. It streams you
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
 
-## XPENG fork: latest 1.0
+## XPENG fork: latest 1.0.1
 
-[Download Wheelplay XPENG Edition 1.0](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.0) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-10)
+[Download Wheelplay XPENG Edition 1.0.1](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-101)
 
-Version 1.0 formalizes audio9 with the new app name, release packaging and updated UI copy. Functional limitations remain documented below.
+Version 1.0.1 supersedes 1.0 and the RC candidates. It retains the existing package/signature and supports in-place upgrades. Experimental VPN compatibility remains opt-in and is not a guarantee of vehicle connectivity.
 
 This personal `xpeng` fork of [fython/wheelplay](https://github.com/fython/wheelplay) runs on an Android phone/tablet and serves CarPlay to the car browser over a local network. It is independent of XPENG and Apple.
 
 | Version | Changes | Validation |
 | --- | --- | --- |
+| **1.0.1**, versionCode 38 | In-app GitHub/Gitee updates; interrupted music playback and viewport fixes; upstream wireless/microphone/USB reliability; optional experimental VPN address compatibility | 719 Android and 102 browser tests passed on the RC7 feature base; release build and checks revalidated for 1.0.1; vehicle VPN connectivity unverified |
 | **1.0**, versionCode 30 | Direct boot listener startup, sticky service recovery, explicit Root keepalive opt-in and paired-browser background wireless preparation; close-aspect viewport changes retain the stream | 522 automated tests passed; locked OnePlus 15T startup needs vehicle testing |
 | **audio8**, versionCode 28 | Syncs upstream OEM customization, appearance, location/microphone sources, safe margins, offline policy and hotspot SSID fixes; retains MSE music and artwork | User confirmed G9 album artwork display; other regression testing still needed |
 | **audio7**, versionCode 27 | Adds JPEG/PNG album artwork to browser MediaMetadata; track-bound requests and stale-cover rejection | 484 automated tests passed; G9 artwork display still needs vehicle testing |

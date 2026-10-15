@@ -1,4 +1,4 @@
-> **1.0.1 候选版：**[下载](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.1) · [更新与验证说明](docs/XPENG-1.0.1-RC1.md)。合入上游音频与连接可靠性修复；1.0 仍为正式版，候选版需继续实车验证。
+> **1.0.1 正式版：**[GitHub 下载](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [更新与验证说明](docs/XPENG-1.0.1.md)。包含 App 内更新、音乐中断与画面适配修复、上游连接可靠性和可选免 Root VPN 兼容。VPN 仍为实验功能，不提供免 Root 的 80／443 映射，特斯拉及萤火虫需实车验证。
 
 # Wheelplay 小鹏定制版
 
@@ -8,16 +8,17 @@ WheelPlay 是一款 Android 局域网 CarPlay 服务端应用，可将 iPhone �
 
 应用安装在 Android 设备上，车机通过浏览器访问即可使用，无需安装客户端或部署额外服务器。
 
-## 小鹏修订版：当前版本 1.0
+## 小鹏修订版：当前版本 1.0.1
 
-[下载 Wheelplay 小鹏定制版 1.0](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.0) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
+[下载 Wheelplay 小鹏定制版 1.0.1](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [audio6 实测版](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [全部版本](https://github.com/memphisyu/wheelplay/releases)
 
-1.0 基于 audio9 整理为正式发布，统一应用名称和界面文案，保留其后台连接、比例调整及媒体功能。正式发布状态不代表所有设备场景均已验证，具体限制见下文。
+1.0.1 在原正式版与后续 RC 修复基础上发布，新增 App 内更新与可选免 Root 浏览器兼容，整合上游连接可靠性修复。包名与签名沿用，可直接覆盖升级；实验功能及车型限制见下文。
 
 本仓库是 [fython/wheelplay](https://github.com/fython/wheelplay) 的个人修订分支 `xpeng`，主要测试小鹏 G9 的浏览器 CarPlay。APK 安装在 Android 手机／平板上，车机通过同一局域网的浏览器访问。非小鹏或 Apple 官方产品，其他车型、系统版本的兼容性需分别验证。
 
 | 版本 | 改动 | 当前验证情况 |
 | --- | --- | --- |
+| **1.0.1** / versionCode 38 | App 内更新、音乐中断与画面适配修复、上游无线/麦克风/USB 可靠性、可选实验 VPN 兼容 | 功能基线 719 项 Android + 102 项网页测试通过；正式版重新构建验证；VPN 需实车验证 |
 | **1.0** / versionCode 30 | 开机直接启动网页服务、系统回收后恢复、Root 启用状态与配对浏览器后台准备连接；相近比例保留原流 | 522 项自动测试通过；15T 锁屏无感连接仍需实车验证 |
 | **audio8** / versionCode 28 | 同步上游车厂自定义、日夜模式、定位／麦克风来源、安全区域、浏览器离线策略及热点名称修复；保留 MSE 音乐和封面 | 用户已确认 G9 正常显示封面；其他使用场景仍需验证 |
 | **audio7** / versionCode 27 | 在 audio6 上增加系统媒体控件封面；按需发送 JPEG/PNG，随切歌更新并拒绝迟到旧封面 | 484 项自动测试通过；小鹏车机封面显示待实车验证 |
@@ -34,6 +35,14 @@ WheelPlay 是一款 Android 局域网 CarPlay 服务端应用，可将 iPhone �
 6. 测试歌曲信息、方向盘切歌、播放／暂停及封面。audio7 可检查 `media.artwork.available`：为 `true` 表示浏览器收到可用封面并尝试交给媒体会话，不保证车机控件一定显示。异常时导出诊断 JSON，附车型、系统版本、音乐 App 和复现步骤。
 
 [后台与比例配置说明](docs/XPENG-AUDIO9-BACKGROUND-RESIZE.md) · [音频与方向盘测试说明](docs/XPENG-AUDIO6-MSE.md) · [封面测试说明](docs/XPENG-AUDIO7-ARTWORK.md) · [历史媒体诊断说明](docs/XPENG-MEDIA-TEST.md)
+
+### 1.0.1 新增与升级
+
+- 设置 → 应用更新：默认 Gitee（国内），可切换 GitHub，手动检查、下载并校验后交由系统安装；可选择是否包含 RC 版本。
+- 修复音乐进度继续但无声及旧错误提示；调整尺寸稳定等待与容差，明显窗口变化仍可能重连。
+- 合入上游无线恢复、麦克风输入和 USB 可靠性修复。
+- 可选免 Root VPN 用于部分车机私有网段访问限制：需手机开热点、车机连接手机，并授权 Android VPN。仍使用 8080／8443 等 Web 监听端口，不提供低端口映射，也不替代可信 HTTPS。
+- 从 1.0 或任意已有小鹏 RC 版直接覆盖安装，保留包名、签名与应用数据。1.0 用户需手动下载一次；RC6 用户可通过 App 内更新。首次安装更新需允许本应用安装未知应用，返回后再次点击安装。
 
 ### 背包自动连接
 

@@ -24,6 +24,7 @@ import org.robolectric.annotation.RealObject
 class TeslaHttpLifecycleTest {
     class RoutingVpnService : CarPlayVpnService() {
         fun allocateWiredTunnel() = establishTunnel("fe80::1")
+        fun allocateTeslaTunnel(address: String) = establishTeslaTunnel(address)
     }
 
     @Implements(android.net.VpnService.Builder::class)
@@ -32,6 +33,7 @@ class TeslaHttpLifecycleTest {
         val addresses = mutableListOf<Pair<String, Int>>()
         val routes = mutableListOf<Pair<String, Int>>()
         val families = mutableSetOf<Int>()
+        var bypass = false
         val allowedApplications = mutableListOf<String>()
         @Implementation fun addAddress(address: String, prefix: Int): android.net.VpnService.Builder {
             addresses.add(address to prefix); return builder
@@ -42,6 +44,7 @@ class TeslaHttpLifecycleTest {
         @Implementation fun allowFamily(family: Int): android.net.VpnService.Builder {
             families.add(family); return builder
         }
+        @Implementation fun allowBypass(): android.net.VpnService.Builder { bypass = true; return builder }
         @Implementation fun addAllowedApplication(packageName: String): android.net.VpnService.Builder {
             allowedApplications.add(packageName); return builder
         }
@@ -54,6 +57,29 @@ class TeslaHttpLifecycleTest {
         companion object {
             val plans = mutableListOf<AllocatingBuilderShadow>()
             val peers = mutableListOf<ParcelFileDescriptor>()
+        }
+    }
+
+    @Test
+    @Config(shadows = [AllocatingBuilderShadow::class])
+    fun teslaBuildersUseOnlyHostRoutesAndAllowBothAddressFamiliesAndBypass() {
+        AllocatingBuilderShadow.plans.clear()
+        val controller = Robolectric.buildService(RoutingVpnService::class.java).create()
+        try {
+            val service = controller.get()
+            for (address in listOf("6.6.6.6", "192.168.229.229")) {
+                service.allocateTeslaTunnel(address).close()
+                val plan = AllocatingBuilderShadow.plans.last()
+                assertEquals(listOf(address to 32), plan.addresses)
+                assertEquals(listOf(address to 32), plan.routes)
+                assertEquals(setOf(android.system.OsConstants.AF_INET, android.system.OsConstants.AF_INET6), plan.families)
+                assertTrue(plan.bypass)
+            }
+        } finally {
+            controller.destroy()
+            AllocatingBuilderShadow.peers.forEach { it.close() }
+            AllocatingBuilderShadow.peers.clear()
+            AllocatingBuilderShadow.plans.clear()
         }
     }
 

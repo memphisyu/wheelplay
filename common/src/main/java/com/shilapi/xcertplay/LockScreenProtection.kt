@@ -7,6 +7,12 @@ import android.os.SystemClock
 import java.io.File
 import java.util.concurrent.TimeUnit
 
+/** The Xpeng keepalive and compatibility routing independently opt into Root. */
+internal fun rootStartupRequested(context: Context): Boolean = RootKeepAlive.isEnabled(context) ||
+    com.shilapi.xcertplay.web.TeslaHttpCompatibility.config(context).let {
+        it.enabled && it.mode == com.shilapi.xcertplay.network.TeslaHttpMode.ROOT
+    }
+
 /** Per-package exemption only: never disables device-wide power saving. */
 internal object RootKeepAlive {
     private const val PREFS = "root_keepalive"

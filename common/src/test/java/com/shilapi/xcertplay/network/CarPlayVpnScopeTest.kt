@@ -128,7 +128,8 @@ class CarPlayVpnScopeTest {
             ClassParameter.from(UsbEndpoint::class.java, endpoint(0x85)),
             ClassParameter.from(UsbEndpoint::class.java, null),
             ClassParameter.from(List::class.java, emptyList<android.hardware.usb.UsbInterface>()),
-            ClassParameter.from(ByteArray::class.java, null))
+            ClassParameter.from(ByteArray::class.java, null),
+            ClassParameter.from(kotlin.jvm.functions.Function1::class.java, { _: String -> Unit }))
     }
 
     private val config = AirPlayConfig("test", "00:00:00:00:00:01", "00:00:00:00:00:02",

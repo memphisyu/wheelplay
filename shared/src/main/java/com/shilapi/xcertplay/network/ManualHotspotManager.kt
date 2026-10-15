@@ -2,7 +2,6 @@ package com.shilapi.xcertplay.network
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.net.ConnectivityManager
 import android.net.wifi.SoftApConfiguration
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
@@ -13,12 +12,9 @@ import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import java.io.IOException
-import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
-import java.net.SocketException
-import java.util.Collections
 import java.util.concurrent.TimeUnit
 
 /**
@@ -39,10 +35,10 @@ class ManualHotspotManager(
     private val onDiagnostic: (String) -> Unit = {},
 ) : WirelessHotspotManager {
     private val appContext = context.applicationContext
-    private val connectivityManager =
-        appContext.getSystemService(ConnectivityManager::class.java)
     private val wifiManager = appContext.getSystemService(WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
+    private val interfaces: ManualHotspotInterfaces
+    private var confirmed: HotspotSelection? = null
     private val expectedSsid = ssid
     private val passphrase = passphrase
     private val expectedBand = band
@@ -66,6 +62,7 @@ class ManualHotspotManager(
         require(expectedSecurity != Iap2WirelessSecurity.NONE || passphrase.isEmpty()) {
             "passphrase must be empty for open manual hotspots"
         }
+        interfaces = ManualHotspotInterfaces(appContext, onDiagnostic)
     }
 
     override fun start(timeoutMillis: Long): WirelessHotspotInfo {
@@ -74,85 +71,77 @@ class ManualHotspotManager(
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
 
-        val deadlineNanos = deadlineAfter(timeoutMillis)
         val apConfiguration = readApConfiguration()
         if (apConfiguration != null && apConfiguration.ssid != expectedSsid) {
-            throw IOException(
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot SSID does not match the active local AP configuration: " +
                     "'${apConfiguration.ssid}'",
             )
         }
         validateApConfiguration(apConfiguration)
 
-        var lastReason = "local hotspot interface was not found"
-        while (true) {
-            check(!closed) { "ManualHotspotManager is closed" }
-            val localInterface = findLocalHotspotInterface()
-            if (localInterface != null) {
-                val connectionFrequency = frequencyFromConnectionInfo()
-                val scanFrequency = frequencyFromScanResult(localInterface)
-                val channel = observedManualHotspotChannel(
-                    apChannel = apConfiguration?.channel ?: 0,
-                    connectionFrequencyMHz = connectionFrequency,
-                    scanFrequencyMHz = scanFrequency,
-                    apFrequencyMHz = apConfiguration?.frequencyMHz,
-                )
-                val frequencyMHz = when {
-                    apConfiguration?.frequencyMHz != null -> apConfiguration.frequencyMHz
-                    connectionFrequency != null -> connectionFrequency
-                    scanFrequency != null -> scanFrequency
-                    else -> null
-                }
-                val security = apConfiguration?.security ?: expectedSecurity
-                onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
-                    "security=$security channelKnown=${channel > 0} " +
-                    "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
-                    "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
-                if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
-                    throw IOException("Manual hotspot is secured but no passphrase was provided")
-                }
-
-                if (channel == 0) {
-                    Log.w(
-                        TAG,
-                        "Could not read the active hotspot channel from Android public APIs; " +
-                            "reporting iAP2 channel 0 (auto) instead of configured channel " +
-                            "$expectedChannel",
-                    )
-                }
-                val observedBandLabel = wifiBandLabel(apConfiguration?.band)
-                return WirelessHotspotInfo(
-                    ssid = expectedSsid,
-                    passphrase = passphrase,
-                    security = security,
-                    channel = channel,
-                    frequencyMHz = frequencyMHz,
-                    bssid = localInterface.hardwareAddress,
-                    interfaceName = localInterface.name,
-                    hostAddress = localInterface.hostAddress,
-                    bandLabel = when (expectedBand) {
-                        ManualHotspotBand.GHZ_2_4 -> "2.4 GHz"
-                        ManualHotspotBand.GHZ_5 -> "5 GHz"
-                        ManualHotspotBand.AUTO ->
-                            frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto"
-                    },
-                    backend = WirelessHotspotBackend.MANUAL_HOTSPOT,
-                )
-            }
-
-            val remainingNanos = remainingNanos(deadlineNanos)
-            if (remainingNanos <= 0) {
-                throw IOException(
-                    "Timed out after ${timeoutMillis}ms waiting for the manual hotspot: " +
-                        lastReason,
-                )
-            }
-            sleep(minOf(remainingNanos, INTERFACE_POLL_NANOS))
+        val selected = ManualHotspotReadiness(
+            sample = interfaces::sample,
+            cancelled = { closed },
+            pause = { millis -> sleep(TimeUnit.MILLISECONDS.toNanos(millis)) },
+        ).await(timeoutMillis)
+        confirmed = selected
+        val localInterface = LocalHotspotInterface(selected.name, selected.address,
+            runCatching { NetworkInterface.getByName(selected.name)?.hardwareAddress?.toMacAddressString() }.getOrNull())
+        val connectionFrequency = frequencyFromConnectionInfo()
+        val scanFrequency = frequencyFromScanResult(localInterface)
+        val channel = observedManualHotspotChannel(
+            apChannel = apConfiguration?.channel ?: 0,
+            connectionFrequencyMHz = connectionFrequency,
+            scanFrequencyMHz = scanFrequency,
+            apFrequencyMHz = apConfiguration?.frequencyMHz,
+        )
+        val frequencyMHz = when {
+            apConfiguration?.frequencyMHz != null -> apConfiguration.frequencyMHz
+            connectionFrequency != null -> connectionFrequency
+            scanFrequency != null -> scanFrequency
+            else -> null
         }
+        val security = apConfiguration?.security ?: expectedSecurity
+        onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
+            "security=$security channelKnown=${channel > 0} " +
+            "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
+            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
+        if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
+            throw IOException("Manual hotspot is secured but no passphrase was provided")
+        }
+
+        if (channel == 0) {
+            Log.w(
+                TAG,
+                "Could not read the active hotspot channel from Android public APIs; " +
+                    "reporting iAP2 channel 0 (auto) instead of configured channel " +
+                    "$expectedChannel",
+            )
+        }
+        val observedBandLabel = wifiBandLabel(apConfiguration?.band)
+        return WirelessHotspotInfo(
+            ssid = expectedSsid,
+            passphrase = passphrase,
+            security = security,
+            channel = channel,
+            frequencyMHz = frequencyMHz,
+            bssid = localInterface.hardwareAddress,
+            interfaceName = localInterface.name,
+            hostAddress = localInterface.hostAddress,
+            bandLabel = when (expectedBand) {
+                ManualHotspotBand.GHZ_2_4 -> "2.4 GHz"
+                ManualHotspotBand.GHZ_5 -> "5 GHz"
+                ManualHotspotBand.AUTO ->
+                    frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto"
+            },
+            backend = WirelessHotspotBackend.MANUAL_HOTSPOT,
+        )
     }
 
     override fun close() {
         closed = true
+        interfaces.close()
     }
 
     private fun validateApConfiguration(configuration: ManualApConfiguration?) {
@@ -160,7 +149,7 @@ class ManualHotspotManager(
         if (expectedChannel > 0 && configuration.channel > 0 &&
             configuration.channel != expectedChannel
         ) {
-            throw IOException(
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot channel ${configuration.channel} does not match configured " +
                 "channel $expectedChannel",
             )
@@ -173,7 +162,7 @@ class ManualHotspotManager(
         if (actualBand != null && expectedBand != ManualHotspotBand.AUTO &&
             actualBand != expectedBand
         ) {
-            throw IOException(
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot band ${wifiBandLabel(configuration.band)} does not match " +
                     "configured band ${wifiBandLabel(if (expectedBand == ManualHotspotBand.GHZ_2_4) 1 else 2)}",
             )
@@ -181,7 +170,7 @@ class ManualHotspotManager(
         // WPA2 vs WPA3 variants are fine: the live security is what the iPhone is told (see start()).
         // Only an open/secured mismatch means the saved password cannot be right.
         if ((configuration.security == Iap2WirelessSecurity.NONE) != (expectedSecurity == Iap2WirelessSecurity.NONE)) {
-            throw IOException(
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot security ${configuration.security} does not match configured " +
                     "security $expectedSecurity",
             )
@@ -198,62 +187,20 @@ class ManualHotspotManager(
         }
     }
 
-    private fun findLocalHotspotInterface(): LocalHotspotInterface? {
-        val interfaces = try {
-            NetworkInterface.getNetworkInterfaces()
-        } catch (_: SocketException) {
-            null
-        } ?: return null
-        val primaryInterface = connectivityManager?.activeNetwork
-            ?.let { connectivityManager.getLinkProperties(it)?.interfaceName }
-        return Collections.list(interfaces)
-            .asSequence()
-            .filter { isUsableInterface(it, primaryInterface) }
-            .mapNotNull { networkInterface ->
-                networkInterface.hotspotAddress()?.let { address ->
-                    LocalHotspotInterface(
-                        name = networkInterface.name,
-                        hostAddress = address,
-                        hardwareAddress = networkInterface.hardwareAddress?.toMacAddressString(),
-                        score = interfaceScore(networkInterface.name, address),
-                    )
-                }
-            }
-            .maxByOrNull(LocalHotspotInterface::score)
-    }
-
-    private fun isUsableInterface(
-        networkInterface: NetworkInterface,
-        primaryInterface: String?,
-    ): Boolean = try {
-        networkInterface.name != primaryInterface &&
-            !networkInterface.isLoopback &&
-            networkInterface.isUp &&
-            EXCLUDED_INTERFACE_PREFIXES.none { networkInterface.name.startsWith(it) }
-    } catch (_: SocketException) {
-        false
-    }
-
-    private fun interfaceScore(name: String, address: InetAddress): Int {
-        var score = when {
-            name.startsWith("ap") || name.contains("softap", ignoreCase = true) -> 100
-            name.startsWith("p2p") -> 80
-            name.startsWith("wlan") -> 70
-            else -> 0
+    override fun validateReady() {
+        val previous = confirmed ?: throw IOException("Manual hotspot is not ready")
+        val current = selectHotspotInterface(interfaces.sample()) {}
+        if (closed || current == null || !previous.sameAddress(current)) {
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
+                "Manual hotspot interface changed before publication")
         }
-        if (address is Inet4Address) {
-            val bytes = address.address
-            when {
-                bytes[0] == 192.toByte() && bytes[1] == 168.toByte() -> score += 30
-                address.isSiteLocalAddress -> score += 20
-            }
+        val configuration = readApConfiguration()
+        if (configuration != null && configuration.ssid != expectedSsid) {
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+                "Manual hotspot SSID changed before publication")
         }
-        if (address is Inet6Address && address.isLinkLocalAddress) score += 15
-        return score
+        validateApConfiguration(configuration)
     }
-
-    private fun NetworkInterface.hotspotAddress(): InetAddress? =
-        wirelessHostAddress(Collections.list(inetAddresses), index)
 
     private fun frequencyFromConnectionInfo(): Int? {
         val connectionInfo = try {
@@ -404,15 +351,6 @@ class ManualHotspotManager(
         }
     }
 
-    private fun deadlineAfter(timeoutMillis: Long): Long {
-        val now = System.nanoTime()
-        val delta = timeoutMillis * NANOS_PER_MILLISECOND
-        return if (Long.MAX_VALUE - now < delta) Long.MAX_VALUE else now + delta
-    }
-
-    private fun remainingNanos(deadlineNanos: Long): Long =
-        (deadlineNanos - System.nanoTime()).coerceAtLeast(0L)
-
     private class ManualApConfiguration(
         val ssid: String,
         val band: Int?,
@@ -425,24 +363,11 @@ class ManualHotspotManager(
         val name: String,
         val hostAddress: InetAddress,
         val hardwareAddress: String?,
-        val score: Int,
     )
 
     private companion object {
         const val TAG = "xcertplay-usb"
-        const val NANOS_PER_MILLISECOND = 1_000_000L
-        val INTERFACE_POLL_NANOS: Long = TimeUnit.MILLISECONDS.toNanos(250)
-        val EXCLUDED_INTERFACE_PREFIXES = listOf(
-            "lo",
-            "dummy",
-            "rmnet",
-            "r_rmnet",
-            "tun",
-            "ppp",
-            "sit",
-            "ip6",
-            "bond",
-        )
+
     }
 }
 

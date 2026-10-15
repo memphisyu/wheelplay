@@ -49,6 +49,8 @@
             android:name="com.shilapi.xcertplay.network.CarPlayVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false">
+            <!-- Local Web/USB owners establish the tunnels; system-only startup cannot do so. -->
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

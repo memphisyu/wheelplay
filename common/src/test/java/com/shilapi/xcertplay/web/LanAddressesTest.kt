@@ -6,6 +6,12 @@ import com.shilapi.xcertplay.web.LanAddresses.Kind
 import com.shilapi.xcertplay.web.LanAddresses.Entry
 
 class LanAddressesTest {
+    @Test fun vpnEntryUsesTheWebPortAndDoesNotClaimRootRouting() {
+        val entry = LanAddresses.sharedEntry("6.6.6.6", "", 9090, com.shilapi.xcertplay.network.TeslaHttpMode.VPN)
+        assertEquals("http://6.6.6.6:9090", entry.url)
+        assertTrue(entry.description.contains("免 Root"))
+        assertFalse(entry.description.contains("Root 热点路由"))
+    }
     @Test fun customPortIsUsedByBothTeslaAndOtherLanEntries() {
         val owned = LanAddresses.sharedEntry("100.96.0.1", "car.example.com", 9090)
         assertEquals("http://car.example.com:9090", owned.url)

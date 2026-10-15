@@ -273,13 +273,13 @@ internal object WebSession {
 
     fun restoreDefaultCertificate(context: Context): String? = runCatching {
         val config = TeslaHttpCompatibility.config(context)
-        val endpoint = LanTls.createDefault(context, (addresses(context).map { it.address } + config.address).distinct(), WebListenSettings.hostname(context))
+        val endpoint = LanTls.createDefault(context, (addresses(context).map { it.address } + config.accessAddress).distinct(), WebListenSettings.hostname(context))
         replaceHttps(context, WebListenSettings.httpsPort(context), endpoint) { LanTls.clearCustom(context) }
     }.getOrElse { "默认 HTTPS 证书恢复失败：${it.message ?: it.javaClass.simpleName}" }
 
     private fun createTls(context: Context): LanTls.Endpoint {
         val config = TeslaHttpCompatibility.config(context)
-        return LanTls.create(context, (addresses(context).map { it.address } + config.address).distinct(), WebListenSettings.hostname(context))
+        return LanTls.create(context, (addresses(context).map { it.address } + config.accessAddress).distinct(), WebListenSettings.hostname(context))
     }
 
     /** A changed port binds first. Certificate replacement on the same port rolls back on failure. */
@@ -421,7 +421,7 @@ internal object WebSession {
 
     fun addresses(context: Context): List<LanAddresses.Entry> {
         val status = TeslaHttpCompatibility.status
-        return LanAddresses.discover(context, status.address, WebListenSettings.hostname(context), httpPort, status.httpMappingPort)
+        return LanAddresses.discover(context, status.address, WebListenSettings.hostname(context), httpPort, status.httpMappingPort, status.mode)
     }
 
     fun httpsPortFor(context: Context, authority: String?, status: com.shilapi.xcertplay.network.TeslaHttpStatus = TeslaHttpCompatibility.status): Int {

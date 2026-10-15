@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.shilapi.xcertplay.network.TeslaHttpConfig
+import com.shilapi.xcertplay.network.TeslaHttpMode
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -15,11 +16,12 @@ internal object LanAddresses {
         VPN("VPN / 隧道", 90), CELLULAR("移动网络", 100)
     }
     data class Entry(val interfaceName: String, val address: String, val kind: Kind, val active: Boolean = false,
-                     val hostname: String = "", val port: Int = WebListenSettings.DEFAULT_HTTP_PORT) {
+                     val hostname: String = "", val port: Int = WebListenSettings.DEFAULT_HTTP_PORT,
+                     val teslaMode: TeslaHttpMode = TeslaHttpMode.ROOT) {
         val url get() = "http://${hostname.ifEmpty { address }}:$port"
         val ipUrl get() = "http://$address:$port"
         val description get() = "${kind.label} · $interfaceName" + when (kind) {
-            Kind.TESLA_HTTP -> " · Root 热点共享；HTTP 可用性需实测"
+            Kind.TESLA_HTTP -> " · ${teslaMode.label}；热点与车机访问需实测"
             Kind.P2P -> " · 通常用于 iPhone 连接"
             Kind.VPN, Kind.CELLULAR -> " · 通常无法从局域网访问"
             else -> ""
@@ -46,11 +48,13 @@ internal object LanAddresses {
     fun isDiscoverable(address: Inet4Address): Boolean =
         address.isSiteLocalAddress || TeslaHttpConfig.isSharedAddress(address.hostAddress ?: "")
 
-    fun sharedEntry(address: String, hostname: String, port: Int = WebListenSettings.DEFAULT_HTTP_PORT): Entry =
-        Entry("Root 热点路由", address, Kind.TESLA_HTTP, hostname = hostname, port = port)
+    fun sharedEntry(address: String, hostname: String, port: Int = WebListenSettings.DEFAULT_HTTP_PORT,
+                    mode: TeslaHttpMode = TeslaHttpMode.ROOT): Entry =
+        Entry(mode.label, address, Kind.TESLA_HTTP, hostname = hostname, port = port, teslaMode = mode)
 
     fun discover(context: Context, teslaAddress: String? = null, hostname: String = "",
-                 port: Int = WebListenSettings.DEFAULT_HTTP_PORT, mappedPort: Int? = null): List<Entry> {
+                 port: Int = WebListenSettings.DEFAULT_HTTP_PORT, mappedPort: Int? = null,
+                 mode: TeslaHttpMode = TeslaHttpMode.ROOT): List<Entry> {
         val transports = mutableMapOf<String, Kind>()
         var activeInterface: String? = null
         // Framework metadata is authoritative; interface-name heuristics cover tethering/P2P.
@@ -80,9 +84,9 @@ internal object LanAddresses {
                 }.getOrDefault(emptyList())
             }
         }.getOrDefault(emptyList())
-        // The HTTP alias lives on loopback, deliberately excluded from ordinary LAN discovery.
-        // Advertise it only after the root session has installed both input and return routing.
-        val shared = teslaAddress?.let { listOf(sharedEntry(it, hostname, mappedPort ?: port)) }.orEmpty()
+        // Aliases on loopback or a retained DOWN TUN are excluded from ordinary discovery.
+        // Only the owning routing/VPN manager may publish them; reachability still needs testing.
+        val shared = teslaAddress?.let { listOf(sharedEntry(it, hostname, mappedPort ?: port, mode)) }.orEmpty()
         val ranked = ranked(shared + entries)
         return if (shared.isEmpty() && hostname.isNotEmpty()) ranked.mapIndexed { index, entry ->
             if (index == 0) entry.copy(hostname = hostname) else entry

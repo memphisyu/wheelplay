@@ -28,6 +28,8 @@ class Iap2WirelessControlClient(
         onReady: () -> Unit = {},
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
+        beforeStartSession: () -> Unit = {},
+        onStartSessionSent: (Long) -> Unit = {},
     ): Iap2WirelessControlResult {
         require(identification.wireless != null) {
             "Wireless control requires an Iap2IdentificationConfig with wireless transport"
@@ -157,7 +159,9 @@ class Iap2WirelessControlClient(
 
                     CARPLAY_AVAILABILITY -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
+                        beforeStartSession()
                         send(carPlayStartSession(endpoint), deadlineNanos)
+                        onStartSessionSent(System.nanoTime())
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
                         onProgress("iap2 tx=0x4301 carplay-start-session")

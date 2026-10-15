@@ -71,6 +71,8 @@ class HttpsSettingsUiTest {
             entered.countDown()
             check(release.await(8, TimeUnit.SECONDS))
         }
+        com.shilapi.xcertplay.web.TeslaHttpCompatibility.save(org.robolectric.RuntimeEnvironment.getApplication(),
+            com.shilapi.xcertplay.network.TeslaHttpConfig(enabled = true))
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
@@ -100,6 +102,8 @@ class HttpsSettingsUiTest {
         val requests = AtomicInteger()
         RootAccess.startupChecked = false
         RootAccess.authorize = { requests.incrementAndGet(); throw java.io.IOException("Permission denied") }
+        com.shilapi.xcertplay.web.TeslaHttpCompatibility.save(org.robolectric.RuntimeEnvironment.getApplication(),
+            com.shilapi.xcertplay.network.TeslaHttpConfig(enabled = true))
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
@@ -118,7 +122,7 @@ class HttpsSettingsUiTest {
         } finally { RootAccess.authorize = original; controller.pause().stop().destroy(); WebSession.stop() }
     }
 
-    @Test fun rootRequestIsFirstAndMappingControlsAppearOnlyAfterAccessIsGranted() {
+    @Test fun modeSelectorPrecedesRootRequestAndMappingControlsRequireAccess() {
         val original = RootAccess.authorize
         var requests = 0
         RootAccess.authorize = { requests++ }
@@ -132,7 +136,8 @@ class HttpsSettingsUiTest {
             val button = rootButton(activity)
             val row = button.parent as ViewGroup
             val section = row.parent as ViewGroup
-            assertSame(row, section.getChildAt(0))
+            assertSame(row, section.getChildAt(1))
+            assertTrue(hasRow(activity, "连接方案"))
             button.performClick()
             waitForUi(activity) { RootAccess.granted }
             assertEquals(1, requests)

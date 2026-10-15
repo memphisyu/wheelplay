@@ -85,7 +85,7 @@ class DiPlaySessionService : Service() {
         main.post(keepaliveTick)
         RootKeepAlive.record(this, "service created")
         WebSession.setBackgroundPhoneConnectHandler { prepareWirelessInBackground() }
-        RootAccess.checkOnStartup()
+        if (rootStartupRequested(this)) RootAccess.checkOnStartup()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "CarPlay 服务", NotificationManager.IMPORTANCE_LOW))
         media = CarPlayMediaSessionBridge(this) { state, session, artwork ->

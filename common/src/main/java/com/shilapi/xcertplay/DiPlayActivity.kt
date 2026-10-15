@@ -14,6 +14,8 @@ import com.shilapi.xcertplay.web.TeslaHttpCompatibility
 import com.shilapi.xcertplay.web.LanTls
 import com.shilapi.xcertplay.web.WebListenSettings
 import com.shilapi.xcertplay.web.BrowserExperienceLink
+import com.shilapi.xcertplay.network.CarPlayVpnService
+import com.shilapi.xcertplay.network.TeslaHttpMode
 import io.github.g00fy2.quickie.QRResult
 import io.github.g00fy2.quickie.ScanQRCode
 import android.bluetooth.BluetoothManager
@@ -66,6 +68,15 @@ class DiPlayActivity : AppCompatActivity() {
     private var teslaStatus: TextView? = null
     private var renderedRootState: Triple<Boolean, Boolean, String>? = null
     private var webBusy = false
+    private var awaitingTeslaVpnConsent = false
+    private val teslaVpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val requested = awaitingTeslaVpnConsent
+        awaitingTeslaVpnConsent = false
+        if (requested && TeslaHttpCompatibility.config(this).mode == TeslaHttpMode.VPN) {
+            applyTeslaHttpEnabled(result.resultCode == RESULT_OK)
+            if (result.resultCode != RESULT_OK) toast("VPN 授权已取消，免 Root 模式保持关闭")
+        }
+    }
     private var pendingPemCertificate: ByteArray? = null
     private val pemCertificatePicker = registerForActivityResult(CertificateDocument()) { uri ->
         if (uri != null) {
@@ -209,11 +220,12 @@ class DiPlayActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        RootAccess.checkOnStartup()
+        if (rootStartupRequested(this)) RootAccess.checkOnStartup()
         com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         ServerWindow.showSystemBars(window)
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
+        awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
             ?: if (setupError == null) "service" else "settings"
         createShell()
@@ -242,6 +254,7 @@ class DiPlayActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
+        outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); createShell() }
@@ -372,10 +385,13 @@ class DiPlayActivity : AppCompatActivity() {
         if (webAddress?.text?.toString() != addressText) webAddress?.text = addressText
         webInterface?.text = primary?.let { it.description + if (it.hostname.isNotEmpty()) "\n直接 IP：${it.ipUrl}" else "" }.orEmpty()
         val compatibility = TeslaHttpCompatibility.status
-        teslaStatus?.text = if (!TeslaHttpCompatibility.config(this).enabled) "已关闭"
+        val teslaConfig = TeslaHttpCompatibility.config(this)
+        teslaStatus?.text = if (!teslaConfig.enabled) "已关闭"
             else if (!WebSession.running && setupError != null) "导入认证资源后启动"
-            else compatibility.error ?: compatibility.address?.let { "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请在车机浏览器访问" }
-            ?: "正在准备 Root 热点路由…"
+            else compatibility.error ?: compatibility.address?.let {
+                if (compatibility.mode == TeslaHttpMode.VPN) "免 Root 地址已配置：$it；热点与车机访问需实测"
+                else "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请用车机测试访问"
+            } ?: "正在准备${teslaConfig.mode.label}…"
         webInterface?.visibility = if (primary == null) View.GONE else View.VISIBLE
         if (displayedAddresses != addresses) {
             displayedAddresses = addresses
@@ -527,6 +543,38 @@ class DiPlayActivity : AppCompatActivity() {
         }
         section(content, "Tesla 兼容") { card ->
             renderedRootState = rootState()
+            val config = TeslaHttpCompatibility.config(this)
+            val compatibilityDescription = label("主要用于帮助屏蔽私有网段访问的车机绕过地址限制，访问手机上的本地服务。除 Tesla 外，有同类限制的其他品牌车机也可尝试。", 14, MUTED)
+            card.addView(ui.preference("连接方案", config.mode.label) {
+                MaterialAlertDialogBuilder(this).setTitle("Tesla 连接方案")
+                    .setSingleChoiceItems(TeslaHttpMode.entries.map { it.label }.toTypedArray(), config.mode.ordinal) { dialog, index ->
+                        val selected = TeslaHttpMode.entries[index]
+                        if (selected != config.mode) {
+                            TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(mode = selected, enabled = false))
+                            render(); refreshService()
+                        }
+                        dialog.dismiss()
+                    }.setNegativeButton("取消", null).show()
+            }.apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent })
+            if (config.mode == TeslaHttpMode.VPN) {
+                card.addView(compatibilityDescription)
+                toggle(card, "启用免 Root Tesla 兼容", "需要 Android VPN 授权，无需 Root 或 Shizuku；可能与其他 VPN 冲突。", config.enabled,
+                    enabled = !webBusy && !awaitingTeslaVpnConsent) { setTeslaHttpEnabled(it) }
+                teslaStatus = label("", 14, MUTED)
+                card.addView(teslaStatus)
+                card.addView(ui.preference("访问 IP 地址", config.vpnAddress) {
+                    textInput("免 Root 访问 IP 地址", config.vpnAddress, false) { value ->
+                        runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(vpnAddress = value)) }
+                            .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "访问 IP 无效") }
+                    }
+                }.apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent })
+                card.addView(label("请让车机连接此手机的系统热点，使用 http://${config.vpnAddress}:${WebListenSettings.httpPort(this)}。此方案可能不兼容部分手机或车机，系统更新后可能失效。有线 CarPlay 已连接时，启用或修改 IP 将等待断开后生效。", 14, MUTED))
+                card.addView(label("此模式只提供兼容访问 IP，仍使用 Web 监听高位端口，不能免 Root 映射到 80 / 443。若车机确实只允许低于 1000 的端口，此模式不能单独解决。可选 HTTPS 仍需可信证书；WebRTC 视频需另测。", 14, MUTED))
+                card.addView(button("授权或重试 VPN", false) { setTeslaHttpEnabled(true) }
+                    .apply { isEnabled = !webBusy && !awaitingTeslaVpnConsent }, ui.secondaryButtonLayout(12))
+                card.addView(button("打开热点设置", false) { openCarWifiSettings() }, ui.secondaryButtonLayout(12))
+                return@section
+            }
             val rootRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             rootRow.addView(button("请求 Root 权限", false) {
                 configureWeb("Root 已授权") { RootAccess.request().also { TeslaHttpCompatibility.retry() } }
@@ -534,8 +582,8 @@ class DiPlayActivity : AppCompatActivity() {
             rootRow.addView(label(RootAccess.status, 14, MUTED).apply { maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END },
                 LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
             card.addView(rootRow)
+            card.addView(compatibilityDescription)
             if (RootAccess.granted) {
-                val config = TeslaHttpCompatibility.config(this)
                 toggle(card, "启用 Tesla 兼容", "将 HTTP / HTTPS 低位端口及自定义 IP 共享给热点设备。", config.enabled, enabled = !webBusy) {
                     setTeslaHttpEnabled(it)
                 }
@@ -949,6 +997,27 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun setTeslaHttpEnabled(enabled: Boolean) {
+        if (enabled && TeslaHttpCompatibility.config(this).mode == TeslaHttpMode.VPN) {
+            if (awaitingTeslaVpnConsent) return
+            try {
+                val consent = CarPlayVpnService.prepare(this)
+                if (consent != null) {
+                    awaitingTeslaVpnConsent = true
+                    teslaVpnConsent.launch(consent)
+                    render()
+                    return
+                }
+            } catch (error: Exception) {
+                awaitingTeslaVpnConsent = false
+                toast("无法请求 VPN 授权：${error.message ?: error.javaClass.simpleName}")
+                render()
+                return
+            }
+        }
+        applyTeslaHttpEnabled(enabled)
+    }
+
+    private fun applyTeslaHttpEnabled(enabled: Boolean) {
         TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(enabled = enabled))
         if (!WebSession.running) startWebServiceIfReady()
         handler.post { render(); refreshService() }
@@ -1346,7 +1415,7 @@ class DiPlayActivity : AppCompatActivity() {
                     appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
                     appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
-                    appendLine("Tesla compatibility: enabled=${TeslaHttpCompatibility.config(appContext).enabled}; rootRoutingReady=${TeslaHttpCompatibility.status.address != null}; downstreams=${TeslaHttpCompatibility.status.downstreams.joinToString()}")
+                    appendLine("Tesla compatibility: enabled=${TeslaHttpCompatibility.config(appContext).enabled}; mode=${TeslaHttpCompatibility.config(appContext).mode}; addressConfigured=${TeslaHttpCompatibility.status.address != null}; downstreams=${TeslaHttpCompatibility.status.downstreams.joinToString()}")
                     TeslaHttpCompatibility.status.error?.let { appendLine("Tesla compatibility status: $it") }
                     appendLine(RootKeepAlive.summary(appContext))
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")

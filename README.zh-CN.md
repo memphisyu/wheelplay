@@ -101,7 +101,14 @@ Canvas 模式需要蔚来等车机实测：若遮罩只覆盖原生视频元素�
 
 ## Tesla 兼容模式（实验）
 
-内置适配 [VPN Hotspot](https://github.com/Mygod/VPNHotspot) 的 Root 路由方案，需要已 Root 且提供 `su`、`ip`、`iptables` 的 Android 设备。App 启动时后台检查一次 Root，「设置 → Tesla 兼容（实验）」第一行可手动重试；授权成功后才显示模式开关、映射 HTTP / HTTPS 端口和自定义访问 IP。开启系统热点并让车机连接、打开此模式，等待路由就绪后尝试 `http://100.96.0.1/`。映射端口范围 `1–1023`，默认 `80` / `443`，只对访问 IP 生效，转发到 Web 监听高位端口。地址、热点投递、回程与映射规则统一管理，关闭模式或停止服务时清理；普通 Web 监听不依赖 Root。Tesla 模式不申请 VPN 授权；有线 CarPlay 的 IPv6 VPN 独立保留。热点路由及 Tesla 支持仍需实机验证。详见 [使用与验证说明](docs/TESLA_HTTP.md)。
+此模式主要帮助屏蔽私有网段访问的车机浏览器，通过兼容访问地址绕过地址限制，访问手机上的本地服务。功能名称沿用「Tesla 兼容」，也适用于有同类限制的其他品牌车机。
+
+在「设置 → Tesla 兼容（实验）→ 连接方案」选择 **免 Root VPN（实验）** 或 **Root 热点路由**。两种方案都默认关闭，切换方案会关闭模式，需重新主动启用；已有 Root 设置保留。
+
+- **免 Root VPN**：无需 Root 或 Shizuku，需要 Android VPN 授权。开启手机系统热点，让车机连接后尝试 `http://6.6.6.6:8080`；直接使用 Web 监听端口，不映射 `80` / `443`。与有线 CarPlay 共用一个 VPN 服务，保留 IPv4 地址接口，再让 NCM IPv6 接口最后成为活动 VPN；断开 iPhone 后恢复兼容接口。连接有线 CarPlay 时启用或修改 IP，会等待断开后生效。此方案利用公开 API 之外未保证的旧 TUN 保留行为，可能不兼容部分设备，系统更新后也可能失效。「地址已配置」仅表示本机检测到该地址，热点和 Tesla 访问仍需实测；WebRTC 的 ICE / UDP 通道需单独验证。
+- **Root 热点路由**：内置适配 [VPN Hotspot](https://github.com/Mygod/VPNHotspot)，需要 `su`、`ip`、`iptables`。手动请求 Root 后启用，默认入口 `http://100.96.0.1/`；映射端口范围 `1–1023`，默认 `80` / `443`，转发到 Web 的高位监听端口。仅已启用的 Root 方案会在启动时后台检查 Root；免 Root 模式不请求 Root。Root 方案不申请 VPN 授权，有线 CarPlay 的 IPv6 VPN 独立保留。
+
+两种方案都在关闭模式或停止 Web 服务时清理资源；普通局域网 Web 监听可独立使用。可选 HTTPS 仍要求可信证书。详见 [使用与验证说明](docs/TESLA_HTTP.md)。
 
 ## 构建
 

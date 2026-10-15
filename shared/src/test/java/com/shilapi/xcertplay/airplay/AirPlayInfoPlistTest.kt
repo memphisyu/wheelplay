@@ -211,6 +211,11 @@ class AirPlayInfoPlistTest {
             0x70004154,
             telephony(AirPlayInfoPlist.build(base.copy(microphone = true)))["audioInputFormats"],
         )
+        assertEquals(0x4154, telephony(AirPlayInfoPlist.build(
+            base.copy(microphone = true, microphoneOpus = false)))["audioInputFormats"])
+        assertEquals(0x70004154, telephony(AirPlayInfoPlist.build(
+            base.copy(microphone = true, microphoneOpus = true)))["audioInputFormats"])
+
     }
 
     @Test

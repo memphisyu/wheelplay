@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.network.TeslaHttpConfig
+import com.shilapi.xcertplay.network.TeslaHttpMode
 import com.shilapi.xcertplay.network.TeslaHttpStatus
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -15,13 +16,14 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
-/** Web-service-owned root routing. Never binds or obtains consent for the USB CarPlay VPN. */
+/** Web-service-owned routing. Only the selected VPN mode binds the shared CarPlay VpnService. */
 internal object TeslaHttpCompatibility {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadScheduledExecutor { work ->
         Thread(work, "tesla-http-routing").apply { isDaemon = true }
     }
     private val routing = RootHttpRouting()
+    private val vpn = TeslaVpnBinding()
     private val revision = AtomicLong()
     @Volatile private var owner: Context? = null
     @Volatile private var tethered = emptySet<String>()
@@ -51,7 +53,9 @@ internal object TeslaHttpCompatibility {
         return runCatching {
             TeslaHttpConfig(prefs.getBoolean("enabled", false),
                 prefs.getString("address", TeslaHttpConfig.DEFAULT_ADDRESS)!!,
-                prefs.getInt("http_mapping_port", 80), prefs.getInt("https_mapping_port", 443))
+                prefs.getInt("http_mapping_port", 80), prefs.getInt("https_mapping_port", 443),
+                TeslaHttpMode.valueOf(prefs.getString("mode", TeslaHttpMode.ROOT.name)!!),
+                prefs.getString("vpn_address", TeslaHttpConfig.DEFAULT_VPN_ADDRESS)!!)
         }.getOrDefault(TeslaHttpConfig())
     }
 
@@ -59,9 +63,10 @@ internal object TeslaHttpCompatibility {
         val previous = config(context)
         preferences(context).edit().putBoolean("enabled", config.enabled)
             .putString("address", config.address).putInt("http_mapping_port", config.httpMappingPort)
-            .putInt("https_mapping_port", config.httpsMappingPort).apply()
+            .putInt("https_mapping_port", config.httpsMappingPort).putString("mode", config.mode.name)
+            .putString("vpn_address", config.vpnAddress).apply()
         refresh(retry = true)
-        if (previous.address != config.address)
+        if (previous.accessAddress != config.accessAddress)
             WebSession.refreshGeneratedCertificate(context)
     }
 
@@ -85,6 +90,7 @@ internal object TeslaHttpCompatibility {
         main.post {
             owner?.let { runCatching { it.unregisterReceiver(receiver) } }
             owner = null; tethered = emptySet(); status = TeslaHttpStatus()
+            vpn.stop()
             refresh()
         }
     }
@@ -93,13 +99,16 @@ internal object TeslaHttpCompatibility {
 
     internal fun plan(config: TeslaHttpConfig, downstreams: List<HttpDownstream>, httpPort: Int?, httpsPort: Int?,
                       authorized: Boolean): RootHttpPlan? =
-        if (!authorized || !config.enabled || downstreams.isEmpty() || httpPort == null) null
+        if (!authorized || !config.enabled || config.mode != TeslaHttpMode.ROOT || downstreams.isEmpty() || httpPort == null) null
         else RootHttpPlan(config.address, httpPort, downstreams, httpsPort,
             config.httpMappingPort, config.httpsMappingPort.takeIf { httpsPort != null })
 
     private fun refresh(retry: Boolean = false) {
         revision.incrementAndGet()
-        status = TeslaHttpStatus(error = owner?.takeIf { config(it).enabled }?.let { "正在准备 Root 热点路由…" })
+        val config = owner?.let(::config)
+        status = TeslaHttpStatus(error = config?.takeIf { it.enabled }?.let { "正在准备${it.mode.label}…" },
+            mode = config?.mode ?: TeslaHttpMode.ROOT)
+        if (retry) main.post { vpn.retry() }
         worker.execute { if (retry) routing.retry(); updateRouting() }
     }
 
@@ -108,6 +117,23 @@ internal object TeslaHttpCompatibility {
         val context = owner
         val config = context?.let(::config)
         try {
+            if (config?.enabled == true && config.mode == TeslaHttpMode.VPN) {
+                // Do not create a competing alias until the former Root transaction is cleaned up.
+                val cleanup = routing.reconcile(null)
+                main.post {
+                    if (revision.get() != version || owner !== context || config(context!!) != config) return@post
+                    val http = WebSession.httpListenerPort
+                    if (cleanup.error != null || http == null) {
+                        vpn.stop()
+                        status = TeslaHttpStatus(error = cleanup.error ?: "请先启动 Web 监听", mode = TeslaHttpMode.VPN)
+                    } else {
+                        vpn.reconcile(context, config.vpnAddress)
+                        status = vpn.status.copy(httpMappingPort = http, httpsMappingPort = WebSession.httpsListenerPort)
+                    }
+                }
+                return
+            }
+            main.post { if (revision.get() == version) vpn.stop() }
             val downstreams = if (config?.enabled == true && RootAccess.granted) tethered.sorted().mapNotNull { name ->
                 val iface = NetworkInterface.getByName(name) ?: return@mapNotNull null
                 if (!iface.isUp || iface.isLoopback) return@mapNotNull null

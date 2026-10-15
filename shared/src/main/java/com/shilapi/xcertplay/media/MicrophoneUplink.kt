@@ -26,12 +26,13 @@ internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val input: PcmInput? = null,
     private val counters: MicrophoneCounters = MicrophoneCounters(),
+    private val createOpusEncoder: (Int) -> MicrophoneOpusEncoder? = { MicrophoneOpusEncoders.create(it) },
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val firstPacketLogged = AtomicBoolean(false)
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
-    @Volatile private var opusEncoder: OpusEncoder? = null
+    @Volatile private var opusEncoder: MicrophoneOpusEncoder? = null
     private var thread: Thread? = null
 
     fun start(): Boolean {
@@ -42,7 +43,7 @@ internal class MicrophoneUplink(
         } else {
             AndroidAudioFormat.CHANNEL_IN_MONO
         }
-        val minBuffer = AudioRecord.getMinBufferSize(
+        val minBuffer = if (input != null) 0 else AudioRecord.getMinBufferSize(
             config.sampleRate,
             channelMask,
             AndroidAudioFormat.ENCODING_PCM_16BIT,
@@ -59,7 +60,7 @@ internal class MicrophoneUplink(
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            OpusEncoder(config.bitrate ?: 48_000).takeIf { it.available }
+            createOpusEncoder(config.bitrate ?: 48_000)
         } else {
             null
         }
@@ -69,27 +70,13 @@ internal class MicrophoneUplink(
             return false
         }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
-        val nextRecorder = if (input != null) null else try {
-            AudioRecord.Builder()
-                .setAudioSource(source)
-                .setAudioFormat(
-                    AndroidAudioFormat.Builder()
-                        .setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(config.sampleRate)
-                        .setChannelMask(channelMask)
-                        .build(),
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .build()
-        } catch (error: Exception) {
-            Log.e(TAG, "microphone recorder creation failed", error)
-            nextEncoder?.close()
-            running.set(false)
-            return false
+        val nextRecorder = if (input != null) null else {
+            createRecorder(source, channelMask, bufferSize)
+                ?: if (source == MediaRecorder.AudioSource.VOICE_RECOGNITION) {
+                    createRecorder(MediaRecorder.AudioSource.VOICE_COMMUNICATION, channelMask, bufferSize)
+                } else null
         }
-        if (nextRecorder != null && nextRecorder.state != AudioRecord.STATE_INITIALIZED) {
-            Log.w(TAG, "microphone recorder failed to initialize")
-            nextRecorder?.release()
+        if (input == null && nextRecorder == null) {
             nextEncoder?.close()
             running.set(false)
             return false
@@ -131,15 +118,48 @@ internal class MicrophoneUplink(
         }
     }
 
+    private fun createRecorder(source: Int, channelMask: Int, bufferSize: Int): AudioRecord? {
+        val next = try {
+            AudioRecord.Builder().setAudioSource(source).setAudioFormat(
+                AndroidAudioFormat.Builder().setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(config.sampleRate).setChannelMask(channelMask).build(),
+            ).setBufferSizeInBytes(bufferSize).build()
+        } catch (error: Exception) {
+            Log.w(TAG, "microphone creation failed source=$source", error)
+            return null
+        }
+        if (next.state == AudioRecord.STATE_INITIALIZED) return next
+        next.release()
+        return null
+    }
+
+    private fun restartRecording(current: AudioRecord): Boolean = try {
+        runCatching { current.stop() }
+        if (!running.get()) false else {
+            current.startRecording()
+            current.recordingState == AudioRecord.RECORDSTATE_RECORDING
+        }
+    } catch (_: Exception) { false }
+
     private fun capture(recorder: AudioRecord?, socket: DatagramSocket) {
         val frame = ByteArray(config.frameBytes)
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         var filled = 0
+        var readRestarts = 0
         try {
             while (running.get()) {
                 val count = input?.read(readBuffer)
                     ?: recorder!!.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING)
                 if (count < 0) {
+                    if (running.get() && input == null && recorder != null &&
+                        count != AudioRecord.ERROR_DEAD_OBJECT && readRestarts < 3 &&
+                        restartRecording(recorder)
+                    ) {
+                        readRestarts++
+                        filled = 0 // Never combine samples from opposite sides of a capture gap.
+                        Log.i(TAG, "microphone capture restarted attempt=$readRestarts code=$count")
+                        continue
+                    }
                     if (running.get() && input == null) Log.e(TAG, "microphone read failed code=$count")
                     return
                 }

@@ -1,4 +1,4 @@
-> **1.0.1 RC4 release candidate:** [Download](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.4) · [Changes and verification](docs/XPENG-1.0.1-RC4.md). Improves viewport stability, audio recovery and MSE buffering. All 604 automated tests pass; vehicle validation is still required. Version 1.0 remains the stable release.
+> **1.0.1 RC5 release candidate:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.5) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1-rc.5) · [Changes and verification](docs/XPENG-1.0.1-RC5.md). Fixes interrupted music playback and stale error messages introduced in RC4. All 609 automated tests pass; vehicle validation is still required. Version 1.0 remains the stable release.
 
 # Wheelplay 小鹏定制版
 

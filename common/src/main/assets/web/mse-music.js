@@ -1,6 +1,6 @@
 import {FLAC_MIME, FLAC_BLOCK, flacInit, flacFrame, flacFragment} from './flac-mp4.js';
 // A real media timeline, rather than a MediaStream, enables browser system media controls.
-export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError = () => {}}) {
+export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError = () => {}, onPlaying = () => {}}) {
   if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported(FLAC_MIME) || ![44100,48000].includes(rate)) return null;
   const element = document.createElement('audio');
   const source = new MediaSource(), url = URL.createObjectURL(source);
@@ -22,10 +22,21 @@ export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError
       const result = element.play();
       Promise.resolve(result).then(() => {
         if (!closed) buffering = false;
-      }, error => {
-        if (!closed) { blocked = true; onError(error.name === 'NotAllowedError' ? '请点按画面允许播放音乐' : error.message, true); }
-      }).finally(() => { playPending = false; });
-    } catch (error) { playPending = false; blocked = true; onError(String(error), true); }
+      }, handlePlayError).finally(() => { playPending = false; });
+    } catch (error) { playPending = false; handlePlayError(error); }
+  }
+  function handlePlayError(error) {
+    if (closed) return;
+    buffering = true;
+    if (error?.name === 'AbortError') {
+      // Interruption is not an autoplay denial. Retry on the next buffer update.
+      blocked = false;
+    } else if (error?.name === 'NotAllowedError') {
+      blocked = true;
+      onError('请点按画面允许播放音乐', true);
+    } else {
+      fail(error?.message || String(error));
+    }
   }
   function fail(error) { if (!closed) { close(); onError(String(error)); } }
   function pump() {
@@ -45,7 +56,20 @@ export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError
     try { buffer=source.addSourceBuffer(FLAC_MIME); buffer.addEventListener('updateend',pump); buffer.addEventListener('error',()=>fail('FLAC decode error')); pump(); }
     catch(error) { fail(error); }
   }, {once:true});
-  element.addEventListener('waiting', () => { if (!closed && requested) { buffering = true; element.pause(); maybePlay(); } });
+  element.addEventListener('waiting', () => {
+    if (closed || !requested) return;
+    buffering = true;
+    // Chrome may dispatch waiting before play() resolves. Pausing here would
+    // reject our own pending start and could permanently block this music stream.
+    if (playPending) return;
+    element.pause();
+    maybePlay();
+  });
+  element.addEventListener('playing', () => {
+    if (closed) return;
+    buffering = blocked = false;
+    onPlaying();
+  });
   element.addEventListener('error',()=>fail(element.error?.message || 'Music playback error'));
   function close() { if (closed) return; closed=true; pending.length=0; element.pause(); element.removeAttribute('src'); element.load(); element.remove(); URL.revokeObjectURL(url); }
   return {

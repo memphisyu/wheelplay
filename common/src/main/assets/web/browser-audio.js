@@ -155,7 +155,7 @@ export function createBrowserAudio({
       if (mseMusic && (mseStream !== frame.stream || mseMusic.rate !== frame.rate || mseMusic.channels !== frame.channels)) { mseMusic.close(); mseMusic = null; }
       if (!mseMusic) {
         mseStream = frame.stream;
-        mseMusic = createMseMusic({ rate: frame.rate, channels: frame.channels, mediaBufferMillis, onError: (error, autoplay) => {
+        mseMusic = createMseMusic({ rate: frame.rate, channels: frame.channels, mediaBufferMillis, onPlaying: () => { if (connected) state(); }, onError: (error, autoplay) => {
           if (autoplay) { state(error); return; }
           mseMusic = null; mseFailed = true; state('原生音乐播放失败，已降级：' + error);
         }});

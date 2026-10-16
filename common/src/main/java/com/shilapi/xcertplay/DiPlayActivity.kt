@@ -527,6 +527,15 @@ class DiPlayActivity : AppCompatActivity() {
                 }
             }.apply { isEnabled = !webBusy })
             card.addView(label("监听设置无需 Root。Web 域名同时用于 HTTP 和 HTTPS，需解析到实际访问的 IP；填写不会自动配置 DNS，自定义 HTTPS 证书需覆盖此域名。", 14, MUTED))
+            toggle(card, "启用 mDNS 本地域名", "可尝试不记 IP 访问；需车机支持 .local 解析和热点多播。", WebListenSettings.mdnsEnabled(this), enabled = !webBusy) {
+                configureWeb(if (it) "mDNS 公告已请求，是否可达请在车机验证" else "mDNS 已关闭") { WebSession.setMdnsEnabled(this, it) }
+            }
+            card.addView(ui.preference("mDNS 本地域名", WebListenSettings.mdnsHostname(this)) {
+                textInput("mDNS 单级域名（例如 wheelplay.local）", WebListenSettings.mdnsHostname(this), false) { value ->
+                    configureWeb("mDNS 域名已保存") { WebSession.setMdnsHostname(this, value.trim().lowercase(Locale.ROOT)) }
+                }
+            }.apply { isEnabled = !webBusy })
+            card.addView(label("启用后尝试 http://${WebListenSettings.mdnsHostname(this)}:${WebListenSettings.httpPort(this)}。域名冲突时请为每台设备使用不同名称；无法解析仍可用原 IP。此名称与自备 Web 域名独立，HTTPS 麦克风继续使用原受信任证书域名。", 14, MUTED))
             toggle(card, "启用 HTTPS", "为浏览器提供 HTTPS 访问；浏览器麦克风需要可信证书。", WebListenSettings.httpsEnabled(this), enabled = !webBusy) {
                 configureWeb(if (it) "HTTPS 已开启" else "HTTPS 已关闭") { WebSession.setHttpsEnabled(this, it) }
             }
@@ -1129,7 +1138,11 @@ class DiPlayActivity : AppCompatActivity() {
     private fun applyWirelessLink(mode: WirelessHotspotMode) {
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
         render()
-        if (CarPlayBackgroundSession.hasSession()) connect(true)
+        if (CarPlayBackgroundSession.hasSession()) {
+            // Release the previous backend before checking whether the new hotspot is on.
+            // Otherwise its P2P group can prevent the user from enabling the system hotspot.
+            CarPlayBackgroundSession.stop { runOnUiThread { connect(true) } }
+        }
     }
 
     private fun showBrowserDevices() {

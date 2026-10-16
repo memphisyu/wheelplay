@@ -7,6 +7,9 @@ import com.shilapi.xcertplay.network.TeslaHttpConfig
 internal object WebListenSettings {
     const val DEFAULT_HTTP_PORT = 8080
     const val DEFAULT_HTTPS_PORT = 8443
+    const val DEFAULT_MDNS_HOSTNAME = "wheelplay.local"
+    private val mdnsPattern = Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.local")
+    fun validMdnsHostname(value: String) = value.length <= 69 && mdnsPattern.matches(value)
     enum class CertificateType(val label: String) { DEFAULT("默认本地证书"), PEM("PEM"), PKCS12("PKCS#12") }
 
     @Synchronized internal fun migrate(context: Context) {
@@ -46,6 +49,16 @@ internal object WebListenSettings {
     fun httpsEnabled(context: Context) = preferences(context).getBoolean("https_enabled", true)
     fun hostname(context: Context) = preferences(context).getString("hostname", "").orEmpty()
         .takeIf(TeslaHttpConfig::isHostname).orEmpty()
+    fun mdnsEnabled(context: Context) = preferences(context).getBoolean("mdns_enabled", false)
+    fun saveMdnsEnabled(context: Context, enabled: Boolean) {
+        check(preferences(context).edit().putBoolean("mdns_enabled", enabled).commit()) { "mDNS 开关保存失败" }
+    }
+    fun mdnsHostname(context: Context) = preferences(context).getString("mdns_hostname", DEFAULT_MDNS_HOSTNAME)
+        .orEmpty().takeIf(::validMdnsHostname) ?: DEFAULT_MDNS_HOSTNAME
+    fun saveMdnsHostname(context: Context, value: String) {
+        require(validMdnsHostname(value)) { "请输入单级 .local 域名，例如 wheelplay.local" }
+        check(preferences(context).edit().putString("mdns_hostname", value).commit()) { "mDNS 域名保存失败" }
+    }
     fun certificateType(context: Context) = runCatching {
         CertificateType.valueOf(preferences(context).getString("certificate_type",
             if (LanTls.hasCustom(context)) "PEM" else "DEFAULT")!!)

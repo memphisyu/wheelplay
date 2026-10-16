@@ -162,6 +162,8 @@ class BluetoothRfcommDuplexStream(
     private fun takePendingLocked(maxBytes: Int): ByteArray? {
         val chunk = pending.pollFirst() ?: return null
         pendingBytes -= chunk.size
+        // Wake the reader when consuming data frees space in the bounded queue.
+        lock.notifyAll()
         if (chunk.size <= maxBytes) return chunk
 
         val head = chunk.copyOf(maxBytes)

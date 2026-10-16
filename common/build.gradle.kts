@@ -40,6 +40,7 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+    implementation(libs.jmdns)
     api(project(":shared"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -51,4 +52,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
+}
+
+// Android 16 Robolectric ApplicationSharedMemory uses the JDK FileDescriptor accessor.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
 }

@@ -27,6 +27,7 @@ internal object WebSession {
     @Volatile var error: String? = null
         private set
     @Volatile private var server: LanWebServer? = null
+    private var mdns: WebMdns? = null
     @Volatile var httpPort = WebListenSettings.DEFAULT_HTTP_PORT
         private set
     @Volatile var httpsPort = WebListenSettings.DEFAULT_HTTPS_PORT
@@ -176,6 +177,7 @@ internal object WebSession {
         val next = LanWebServer(context.applicationContext, code, port)
         try {
             next.start(5000, true); server = next; httpPort = port; error = null
+            refreshMdns(context)
             experienceContext = context.applicationContext
             offlineSubscription = CarPlayBackgroundSession.subscribe { viewerStateChanged() }
             httpsPort = WebListenSettings.httpsPort(context)
@@ -230,6 +232,7 @@ internal object WebSession {
         }
         if (current == null || port == previousPort) WebListenSettings.saveHttpPort(context, port)
         httpPort = port
+        mdns?.refreshNow()
         TeslaHttpCompatibility.retry()
         return null
     }
@@ -270,6 +273,24 @@ internal object WebSession {
         refreshGeneratedCertificate(context)
         null
     }.getOrElse { it.message ?: "Web 域名保存失败" }
+
+    @Synchronized fun setMdnsEnabled(context: Context, enabled: Boolean): String? = runCatching {
+        WebListenSettings.saveMdnsEnabled(context, enabled)
+        refreshMdns(context)
+        null
+    }.getOrElse { it.message ?: "mDNS 开关保存失败" }
+
+    @Synchronized fun setMdnsHostname(context: Context, hostname: String): String? = runCatching {
+        WebListenSettings.saveMdnsHostname(context, hostname)
+        mdns?.refreshNow()
+        null
+    }.getOrElse { it.message ?: "mDNS 域名保存失败" }
+
+    private fun refreshMdns(context: Context) {
+        if (!WebListenSettings.mdnsEnabled(context) || !running) {
+            mdns?.close(); mdns = null
+        } else if (mdns == null) mdns = WebMdns(context.applicationContext)
+    }
 
     fun restoreDefaultCertificate(context: Context): String? = runCatching {
         val config = TeslaHttpCompatibility.config(context)
@@ -400,6 +421,7 @@ internal object WebSession {
         generation++; frame = null; videoActive = false
     } }
     @Synchronized fun stop() {
+        mdns?.close(); mdns = null
         experienceContext = null
         offlineSubscription?.close(); offlineSubscription = null
         if (Looper.myLooper() == Looper.getMainLooper()) offlineMonitor.close()

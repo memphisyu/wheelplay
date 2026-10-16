@@ -10,6 +10,8 @@ import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
 import com.shilapi.xcertplay.network.P2pResetRequiredException
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
+import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
+import java.io.IOException
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -35,11 +37,56 @@ class WifiP2pGroupManagerTest {
     private val radio get() = shadowOf(context.getSystemService(WifiP2pManager::class.java)) as P2pRadio
 
     @Before fun setup() {
-        shadowOf(context).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        shadowOf(context).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.NEARBY_WIFI_DEVICES)
         val wifi = context.getSystemService(WifiManager::class.java)
         wifi.isWifiEnabled = true
         shadowOf(wifi.connectionInfo).setFrequency(5180)
         shadowOf(wifi.connectionInfo).setSupplicantState(SupplicantState.COMPLETED)
+    }
+
+    @Test @Config(sdk = [36])
+    fun android16UnknownSecurityKeepsTheCreatedGroupAndItsCredentials() {
+        radio.securityType = WifiP2pGroup.SECURITY_TYPE_UNKNOWN
+        val logs = mutableListOf<String>()
+        WifiP2pGroupManager(context, logs::add).use { manager ->
+            val info = background { manager.start(5000) }
+            assertEquals(Iap2WirelessSecurity.WPA_WPA2, info.security)
+            assertEquals(5180, info.frequencyMHz)
+            assertEquals(radio.requests.single()!!.networkName, info.ssid)
+            assertEquals(radio.requests.single()!!.passphrase, info.passphrase)
+            assertEquals(0, radio.removals)
+            assertTrue(logs.any { it.contains("security type not reported") && it.contains("WPA2-PSK") })
+            assertTrue(logs.any { it.contains("ready mode=ALIGNED_5_GHZ") })
+            assertFalse(logs.any { it.contains(info.ssid) || it.contains(info.passphrase) })
+        }
+        assertEquals(1, radio.removals)
+    }
+
+    @Test @Config(sdk = [36])
+    fun android16ReportedSecurityTypesArePreserved() {
+        for ((reported, expected) in listOf(
+            WifiP2pGroup.SECURITY_TYPE_WPA2_PSK to Iap2WirelessSecurity.WPA_WPA2,
+            WifiP2pGroup.SECURITY_TYPE_WPA3_COMPATIBILITY to Iap2WirelessSecurity.WPA3_TRANSITION,
+            WifiP2pGroup.SECURITY_TYPE_WPA3_SAE to Iap2WirelessSecurity.WPA3_ONLY,
+        )) {
+            radio.securityType = reported
+            val logs = mutableListOf<String>()
+            WifiP2pGroupManager(context, logs::add).use { manager ->
+                assertEquals(expected, background { manager.start(5000) }.security)
+                assertFalse(logs.any { it.contains("assuming WPA2-PSK") })
+            }
+        }
+    }
+
+    @Test @Config(sdk = [36])
+    fun android16UnrecognizedSecurityStillFailsAndRemovesItsGroup() {
+        radio.securityType = 91
+        WifiP2pGroupManager(context).use { manager ->
+            val error = failure { manager.start(5000) }
+            assertTrue(error is IOException)
+            assertEquals("Unsupported Wi-Fi P2P security type: 91", error.message)
+        }
+        assertEquals(1, radio.removals)
     }
 
     @Test fun disconnectedStationCannotPinNewGroupToStaleTwoGhzChannel() {
@@ -329,6 +376,7 @@ class WifiP2pGroupManagerTest {
         var fixed24Only = false
         var allowed24 = setOf(2412, 2437, 2462)
         var reportedFrequency: Int? = null
+        var securityType: Int? = null
 
         @Implementation protected fun requestP2pState(channel: WifiP2pManager.Channel, listener: WifiP2pManager.P2pStateListener) {
             listener.onP2pStateAvailable(WifiP2pManager.WIFI_P2P_STATE_ENABLED)
@@ -370,6 +418,7 @@ class WifiP2pGroupManagerTest {
             shadowOf(this).setPassphrase(if (missingCredentials) null else config?.passphrase ?: "test-generated-key")
             shadowOf(this).setInterface("p2p-test-missing")
             ReflectionHelpers.setField(this, "mFrequency", reportedFrequency ?: config?.groupOwnerBand ?: 2437)
+            this@P2pRadio.securityType?.let { ReflectionHelpers.setField(this, "mSecurityType", it) }
         }
     }
 }

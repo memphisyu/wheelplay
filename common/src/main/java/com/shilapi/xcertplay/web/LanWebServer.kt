@@ -291,9 +291,11 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             }
         }
 
-        override fun close(code: WebSocketFrame.CloseCode, reason: String, initiatedByRemote: Boolean) {
+        override fun close(code: WebSocketFrame.CloseCode?, reason: String?, initiatedByRemote: Boolean) {
             // Keep the reader alive until the queued close reply is written; NanoWSD's default
             // close changes state immediately and would close the socket before this async write.
+            // A close frame without a status code reaches here as null code/reason, and NanoWSD's
+            // CloseFrame answers it with an equally payload-free close frame.
             if (closing.compareAndSet(false, true)) sendFrame(WebSocketFrame.CloseFrame(code, reason))
         }
 
@@ -468,7 +470,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             } catch (_: Exception) { disconnect("无效的控制消息") }
         }
 
-        override fun onClose(code: WebSocketFrame.CloseCode, reason: String, initiatedByRemote: Boolean) = cleanup()
+        override fun onClose(code: WebSocketFrame.CloseCode?, reason: String?, initiatedByRemote: Boolean) = cleanup()
         override fun onException(exception: IOException) = cleanup()
         override fun onPong(pong: WebSocketFrame) { lastSeen = SystemClock.elapsedRealtime() }
 

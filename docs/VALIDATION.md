@@ -326,6 +326,23 @@ App 启动时后台检查一次 Root，检查成功自动更新设置控件并�
 - 新增 3 项回归：生成的真实事务 shell 同时模拟启动失败与回滚失败；参数块前置的 EC 私钥经 Android Conscrypt KeyManager 完成可信 TLS 握手、保存与重载；缺失/多把私钥或额外对象被拒绝且原身份保持有效。前两项在旧代码上失败，修复后通过。
 - Common 197 项、Shared 239 项完整回归通过，共 436 项，0 失败 / 错误 / 跳过；Lint 0 错误、18 项警告；Debug 构建通过。网页代码未变，沿用此前 64 项网页测试及语法检查结果；此轮未重新安装到手机。
 
+## WebSocket 空关闭帧 NPE 修复（2026-10-15）
+
+浏览器（真实 Chrome）关闭 WebSocket 时，App 端 NanoHTTPD 抛出 `NullPointerException: Parameter specified as non-null is null: method …LanWebServer$Client.close, parameter code`（栈 `NanoWSD$WebSocket.handleCloseFrame:186`），异常离开处理线程导致未发送 close 回复、未释放 viewer。模拟器实测复现 3 次（同一「断开」点击路径）。
+
+根因（读 NanoWSD 2.3.1 真实源码，sources jar sha256 `0852067223ffa2c6cbf50536964296651f454c43f9bde4536615c7f8d65baa2b`）：`handleCloseFrame` 对无状态码关闭帧传入 `code=null/reason=null`；`CloseFrame.generatePayload(code==null)` 生成空 payload，回帧本就应为「无状态码 close」，不得合成 1000/1005。本项目 Kotlin 覆写把 Java 平台参数声明为非空，触发编译器 null 检查。
+
+修复：`LanWebServer.Client.close` 与 `onClose` 的平台参数放宽为可空并原样透传，保留「异步写出 close 回复 → afterSend → cleanup」设计；未 catch/suppress、未硬编码状态码，未改前端重连、协议校验、权限、telemetry 或依赖版本。
+
+公开线协议回归（真实 socket，非反射 / 源码文本断言）：新增 `LanWebServerTest.emptyCloseFrameRepliesProtocolCorrectlyReleasesViewerAndAllowsReconnect` —— masked 空 Close → 断言服务端回 `OpCode.Close` 且 payload 为空、连接被服务端收尾（read=-1）、`WebSession.hasViewer=false`、随后重连首条帧为 `audio-route`（排除「101 但 busy」假通过）。用例绑定独立空闲端口并在 finally 还原端口偏好，避免默认端口占用影响该协议边界的判定。
+
+- RED（修复前）：`java.io.EOFException`（LanWebServerTest.kt:367）；GREEN（修复后）：`tests=1 failures=0`。
+- 如实说明：整类 `LanWebServerTest` 未在本机通过 —— 主机默认端口 8080 由其它服务（com.docker）占用且未停用该服务，依赖 8080 的既有用例报 `BindException: Address already in use` 并级联失败；本次只确认目标回归用例通过，不声称完整套件通过，也未做修复前后整类对比。
+
+模拟器复验（API 36）：刷新后「已自动恢复配对」，真实点击「断开 / 启动显示」多轮全部干净恢复；观测窗口内 `NanoHTTPD|NullPointerException`=0、`FATAL EXCEPTION`=0、ANR=0；断开后设备侧事后核实出现新 ESTAB 连接，证明重连真实建立。窗口与计数只针对实际留存的日志，不宣称所有 buffer 绝对无丢失。
+
+未测边界：无真实 iPhone、无实车、未在手机端验证；CarPlay 会话建立、画面 / 音频投送、触控回传、USB / Wi‑Fi Direct 硬件通路均未验证。运行时权限状态与修复前一致（`NEARBY_WIFI_DEVICES` / `BLUETOOTH_CONNECT` 由系统权限界面授予，其余未触发）。
+
 ## 产物
 
 以下发行包为同步上游前用于真机验证的本地产物，本轮仅重新构建 Debug。

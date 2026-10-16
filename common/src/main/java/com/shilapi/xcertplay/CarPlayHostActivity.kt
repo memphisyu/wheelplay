@@ -495,23 +495,27 @@ class CarPlayHostActivity : ComponentActivity() {
         safeAreaDrawOutside = AirPlayPersistence.loadSafeAreaDrawOutside(this)
         locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
         locationPermissionAvailable = hasFineLocationPermission()
-        wirelessEnabled = AirPlayPersistence.loadWirelessEnabled(this)
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         mfiI2cPath = AirPlayPersistence.loadMfiI2cPath(this)
         remoteMfiServer = AirPlayPersistence.loadRemoteMfiServer(this)
         remoteMfiToken = AirPlayPersistence.loadRemoteMfiToken(this)
-        wirelessHotspotMode = AirPlayPersistence.loadWirelessHotspotMode(this)
-        manualHotspotSsid = AirPlayPersistence.loadManualHotspotSsid(this)
-        manualHotspotPassphrase = AirPlayPersistence.loadManualHotspotPassphrase(this)
-        manualHotspotBand = AirPlayPersistence.loadManualHotspotBand(this)
-        manualHotspotChannel = AirPlayPersistence.loadManualHotspotChannel(this)
-        manualHotspotSecurity = AirPlayPersistence.loadManualHotspotSecurity(this)
+        loadPersistedWirelessSettings()
         manualHotspotChannelPermissionAsked =
             AirPlayPersistence.loadManualHotspotChannelPermissionPromptDismissed(this)
         if (manualHotspotChannelPermissionAsked && !hasFineLocationPermission()) {
             manualHotspotChannelPermissionNote = "Channel detection permission skipped; using Auto"
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+    }
+
+    private fun loadPersistedWirelessSettings() {
+        wirelessEnabled = AirPlayPersistence.loadWirelessEnabled(this)
+        wirelessHotspotMode = AirPlayPersistence.loadWirelessHotspotMode(this)
+        manualHotspotSsid = AirPlayPersistence.loadManualHotspotSsid(this)
+        manualHotspotPassphrase = AirPlayPersistence.loadManualHotspotPassphrase(this)
+        manualHotspotBand = AirPlayPersistence.loadManualHotspotBand(this)
+        manualHotspotChannel = AirPlayPersistence.loadManualHotspotChannel(this)
+        manualHotspotSecurity = AirPlayPersistence.loadManualHotspotSecurity(this)
     }
 
     private fun requestStartupPrerequisites() {
@@ -643,7 +647,15 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (!isFinishing && controller == null && !menuOpen) {
+        var transportChanged = false
+        if (!isFinishing && !shuttingDown.get() && controller == null &&
+            !menuOpen && !handshakeResetInProgress
+        ) {
+            // The singleTask host can return from settings before a controller exists.
+            // Refresh the backend and its credentials before any startup/permission checks.
+            val previousWireless = wirelessEnabled
+            loadPersistedWirelessSettings()
+            transportChanged = previousWireless != wirelessEnabled
             locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
             val selectedMicrophone = AirPlayPersistence.loadMicrophoneSource(this)
             if (microphoneSource != selectedMicrophone) {
@@ -667,7 +679,13 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
         updateHotspotStatusBlock()
-        maybeStartCarPlay()
+        if (transportChanged && microphonePermissionResolved && !awaitingVpnConsent &&
+            !awaitingWirelessPermissions && !awaitingLocationPermission
+        ) {
+            requestStartupPrerequisites()
+        } else {
+            maybeStartCarPlay()
+        }
         showSystemBars()
     }
 

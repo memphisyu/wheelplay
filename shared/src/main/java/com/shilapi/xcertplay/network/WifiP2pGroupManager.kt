@@ -546,6 +546,12 @@ class WifiP2pGroupManager(
             WifiP2pGroup.SECURITY_TYPE_WPA3_COMPATIBILITY ->
                 Iap2WirelessSecurity.WPA3_TRANSITION
             WifiP2pGroup.SECURITY_TYPE_WPA3_SAE -> Iap2WirelessSecurity.WPA3_ONLY
+            // Vendor supplicants can leave the new API 36 security report UNKNOWN for
+            // the ordinary WPA2-PSK group created above. Keep the pre-36 assumption.
+            WifiP2pGroup.SECURITY_TYPE_UNKNOWN -> {
+                diagnostic("Wi-Fi P2P security type not reported by the framework; assuming WPA2-PSK")
+                Iap2WirelessSecurity.WPA_WPA2
+            }
             else -> throw IOException(
                 "Unsupported Wi-Fi P2P security type: ${group.securityType}",
             )

@@ -372,6 +372,41 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test fun emptyCloseFrameRepliesProtocolCorrectlyReleasesViewerAndAllowsReconnect() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        // This case binds a free port of its own: the default 8080 may already be owned by
+        // another local service, and that must not decide this protocol boundary's verdict.
+        val previousPort = WebListenSettings.httpPort(context)
+        val port = java.net.ServerSocket(0).use { it.localPort }
+        WebListenSettings.saveHttpPort(context, port)
+        WebSession.start(context)
+        try {
+            val origin = "http://127.0.0.1:$port"
+            handshake(WebSession.code, origin, host = "127.0.0.1:$port", port = port).use { client ->
+                client.soTimeout = 3000
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                maskedFrame(client, 8, ByteArray(0))
+                val close = fi.iki.elonen.NanoWSD.WebSocketFrame.read(client.getInputStream())
+                assertEquals(fi.iki.elonen.NanoWSD.WebSocketFrame.OpCode.Close, close.opCode)
+                assertArrayEquals("A status code must never be synthesized on the wire",
+                    ByteArray(0), close.binaryPayload)
+                assertEquals(-1, client.getInputStream().read())
+            }
+            assertFalse(WebSession.hasViewer)
+            handshake(WebSession.code, origin, host = "127.0.0.1:$port", port = port).use { next ->
+                assertTrue(readHeaders(next).startsWith("HTTP/1.1 101"))
+                next.soTimeout = 3000
+                // A rejected (busy/expired) viewer also completes the handshake, so only the
+                // first control message proves the reclaimed lease actually carries this session.
+                assertEquals("audio-route", org.json.JSONObject(frame(next).toString(Charsets.UTF_8)).getString("type"))
+            }
+        } finally {
+            WebSession.stop()
+            WebListenSettings.saveHttpPort(context, previousPort)
+        }
+    }
+
     @Test fun qrHttpFlowRequiresOriginAndLocalApprovalBeforeWebSocket() {
         val server = LanWebServer(org.robolectric.RuntimeEnvironment.getApplication(), "123456")
         server.start(5000, true)

@@ -25,7 +25,7 @@ class RtcNativeTest {
                 assertTrue(offer.second.contains("a=sendonly"))
                 assertTrue(offer.second.contains("a=fingerprint:sha-256"))
                 assertTrue(offer.second.contains("a=candidate:"))
-                assertFalse(native.send(handle, byteArrayOf(0, 0, 0, 1, 0x65), 0))
+                assertFalse(native.send(handle, byteArrayOf(0, 0, 0, 1, 0x65), null, 0))
             } finally { native.destroy(handle) }
         }
     }

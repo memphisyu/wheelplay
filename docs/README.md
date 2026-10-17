@@ -12,6 +12,7 @@
 - [验证记录](VALIDATION.md)：已通过的检查、APK 校验值和未完成的真机验证。
 - [组件间距检查](SPACING_REVIEW.md)：本轮发现、尺寸约定、修正和验证范围。
 - [上游来源](UPSTREAM.md)：原版提交及本分支改动范围。
+- [持续同步与合并台账](UPSTREAM-SYNC.md)：已适配与暂缓的上游变更，以及分支差异扩大时的集成流程。
 - [NanoHTTPD 许可](NANOHTTPD-LICENSE.txt)。
 
 `upstream/` 保留上游文档及许可证，属于原版参考资料，其中安装位置、构建版本及 HUD 流程可能不适用于 Web 分支。本分支用法以根目录 README 和本目录为准。

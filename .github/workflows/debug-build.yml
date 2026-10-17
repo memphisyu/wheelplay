@@ -32,7 +32,14 @@ jobs:
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
 
       - name: Build and verify Debug
-        run: ./gradlew --no-daemon :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug
+        run: ./gradlew --no-daemon :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug
+
+      - name: Upload browser runtime test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelplay-browser-runtime-tests
+          path: common/build/outputs/apk/androidTest/debug/common-debug-androidTest.apk
+          if-no-files-found: error
 
       - name: Upload Debug APK
         if: always()
@@ -48,4 +55,44 @@ jobs:
         with:
           name: wheelplay-lint-results
           path: mobile/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+
+  browser-runtime:
+    name: Browser HTTP on Android ${{ matrix.api-level }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [28, 36]
+    steps:
+      - name: Download browser runtime test APK
+        uses: actions/download-artifact@v4
+        with:
+          name: wheelplay-browser-runtime-tests
+          path: runtime-tests
+
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+
+      - name: Verify browser entry pages and media assets
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r runtime-tests/common-debug-androidTest.apk
+            adb shell am instrument -w -r -e class com.shilapi.xcertplay.web.BrowserPageRuntimeTest com.shilapi.xcertplay.host.test/androidx.test.runner.AndroidJUnitRunner > browser-runtime.log
+            cat browser-runtime.log
+            grep -Eq '^OK \([1-9][0-9]* tests?\)' browser-runtime.log
+
+      - name: Upload runtime test result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-runtime-api-${{ matrix.api-level }}
+          path: browser-runtime.log
           if-no-files-found: warn

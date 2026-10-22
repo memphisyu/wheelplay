@@ -1,4 +1,4 @@
-> **1.0.2 RC2 候选版：**[GitHub 下载](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.2) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.2) · [更新说明](docs/XPENG-1.0.2-RC2.md)。包含 RC1 连接修复和可选 mDNS；本次补充运行时测试，不宣称新增播放修复。
+> **1.0.2 RC3 候选版：**[GitHub 下载](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.3) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.3) · [更新说明](docs/XPENG-1.0.2-RC3.md)。修复视频帧格式，增加可选浏览器缩放补偿、画面状态隔离与 WebRTC 退避重试。
 
 > **1.0.1 正式版：**[GitHub 下载](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [更新与验证说明](docs/XPENG-1.0.1.md)。包含 App 内更新、音乐中断与画面适配修复、上游连接可靠性和可选免 Root VPN 兼容。VPN 仍为实验功能，不提供免 Root 的 80／443 映射，特斯拉及萤火虫需实车验证。
 

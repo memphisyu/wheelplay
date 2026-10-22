@@ -1,4 +1,4 @@
-> **1.0.2 RC2 candidate:** [GitHub download](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.2) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.2) · [说明](docs/XPENG-1.0.2-RC2.md). Retains RC1 connection fixes and opt-in mDNS; this update adds runtime test coverage.
+> **1.0.2 RC3 candidate:** [GitHub download](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.3) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.3) · [说明](docs/XPENG-1.0.2-RC3.md). Adds video framing fixes, optional browser zoom compensation, and presentation recovery with bounded WebRTC retry.
 
 > **1.0.1 stable release:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Release notes](docs/XPENG-1.0.1.md). Includes in-app updates, music playback and viewport fixes, upstream wireless/microphone/USB reliability, and opt-in experimental no-root browser compatibility. The VPN mode does not map ports 80/443; vehicle compatibility still requires device testing.
 

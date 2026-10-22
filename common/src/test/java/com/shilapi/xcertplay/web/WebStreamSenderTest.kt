@@ -24,6 +24,22 @@ class WebStreamSenderTest {
         fun runNext() { tasks.removeFirst().run() }
     }
     private fun frame(id: Long) = WebSession.Frame(byteArrayOf(id.toByte()), 0, id)
+
+    @Test fun negotiatedVideoPacketsCarryTheirOwnVersionAndStillRequireAck() {
+        val executor = ManualExecutor()
+        val sent = mutableListOf<ByteArray>()
+        var latest = WebSession.Frame(byteArrayOf(1), 0, 1, 7, 42, 720, 1280)
+        val sender = WebStreamSender({ latest }, { sent.add(it.binaryPayload) }, { fail() },
+            executor, { 0 }, versionedVideo = true)
+        try {
+            sender.frameAvailable(); executor.runNext()
+            assertArrayEquals(VideoPacket.encode(latest), sent.single())
+            latest = latest.copy(jpeg = byteArrayOf(2), sequence = 2, videoEpoch = 43)
+            sender.frameAvailable(); assertTrue(executor.tasks.isEmpty())
+            sender.acknowledge(); executor.runNext()
+            assertArrayEquals(VideoPacket.encode(latest), sent.last())
+        } finally { sender.close() }
+    }
     private fun text(value: String) = WebSocketFrame(WebSocketFrame.OpCode.Text, true, value)
     private fun pcm(sequence: Int, media: Boolean = true) = java.nio.ByteBuffer.allocate(20 + 960 * 2)
         .order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(BrowserAudioBridge.AUDIO_MAGIC).putInt(7)

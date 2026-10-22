@@ -96,3 +96,26 @@ jobs:
           name: browser-runtime-api-${{ matrix.api-level }}
           path: browser-runtime.log
           if-no-files-found: warn
+
+  browser-and-native:
+    name: Browser presentation and native video regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test && npm run check
+      - name: Real Chromium presentation regression
+        env:
+          BROWSER_BIN: google-chrome
+        run: npm run test:browser:media
+      - name: Native framing and packetizer sanitizers
+        run: |
+          clang++ -std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -Icommon/src/main/cpp test/native/video-buffer.cpp -o "$RUNNER_TEMP/video-buffer-test"
+          "$RUNNER_TEMP/video-buffer-test"
+          clang++ -std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -Icommon/src/main/cpp test/native/video-packetizer.cpp -o "$RUNNER_TEMP/video-packetizer-test"
+          "$RUNNER_TEMP/video-packetizer-test"

@@ -12,6 +12,7 @@
 - [验证记录](VALIDATION.md)：已通过的检查、APK 校验值和未完成的真机验证。
 - [组件间距检查](SPACING_REVIEW.md)：本轮发现、尺寸约定、修正和验证范围。
 - [上游来源](UPSTREAM.md)：原版提交及本分支改动范围。
+- [1.0.2 RC3 改动与验证范围](XPENG-1.0.2-RC3.md)：视频帧格式、可选缩放补偿、画面状态隔离与退避重试。
 - [持续同步与合并台账](UPSTREAM-SYNC.md)：已适配与暂缓的上游变更，以及分支差异扩大时的集成流程。
 - [NanoHTTPD 许可](NANOHTTPD-LICENSE.txt)。
 

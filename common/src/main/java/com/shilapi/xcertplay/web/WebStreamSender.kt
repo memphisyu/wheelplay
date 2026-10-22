@@ -14,6 +14,7 @@ internal class WebStreamSender(
     private val onFailure: () -> Unit,
     private val executor: ExecutorService = Executors.newSingleThreadExecutor(),
     private val now: () -> Long = SystemClock::elapsedRealtime,
+    private val versionedVideo: Boolean = false,
 ) : Closeable {
     enum class Control { ARTWORK, STATUS, PHONE_CONNECT, INPUT_UNAVAILABLE, BUSY, PONG, CLOSE, RTC, MIC_CONFIG, MIC_STOP, AUDIO_STOP, AUDIO_RESET, AUDIO_ROUTE, MEDIA_RESULT }
     private data class Outgoing(val frame: WebSocketFrame, val afterSend: () -> Unit = {})
@@ -132,7 +133,8 @@ internal class WebStreamSender(
                         inFlight = true
                         sentAt = now()
                         sequence = frame.sequence
-                        Outgoing(WebSocketFrame(WebSocketFrame.OpCode.Binary, true, frame.jpeg))
+                        Outgoing(WebSocketFrame(WebSocketFrame.OpCode.Binary, true,
+                            if (versionedVideo) VideoPacket.encode(frame) else frame.jpeg))
                     }
                 }
                 write(outgoing.frame)

@@ -49,6 +49,21 @@ test('missing WebRTC and first-frame timeout both fall back without closing the 
   assert.equal(f.pc.closed, true); assert.equal(f.stopped, 1);
 });
 
+test('autoplay and unsupported platform errors block retries, while transient setup errors remain retryable', async () => {
+  for (const name of ['NotAllowedError', 'NotSupportedError', 'OperationError']) {
+    const f = fixture();
+    f.pc.setRemoteDescription = async () => { throw Object.assign(new Error('setup'), { name }); };
+    await f.receiver.receive({ type: 'rtc-offer', id: 21, sdp: 'offer' });
+    assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: 21,
+      ...(name === 'OperationError' ? {} : { retryable: false }) });
+  }
+  const f = fixture();
+  f.video.play = async () => { throw Object.assign(new Error('autoplay'), { name: 'NotAllowedError' }); };
+  await f.receiver.receive({ type: 'rtc-offer', id: 22, sdp: 'offer' });
+  f.pc.ontrack({ streams: [{}] }); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: 22, retryable: false });
+});
+
 test('late SDP and stale stop cannot affect a replacement connection', async () => {
   let resolve;
   const f = fixture(); f.pc.setRemoteDescription = () => new Promise(r => { resolve = r; });
@@ -169,7 +184,7 @@ test('HEVC unsupported by the receiver falls back before creating a peer', async
   const f = fixture(() => { created = true; }, codec => codec === 'H264');
   await f.receiver.receive({ type: 'rtc-offer', id: 10, codec: 'H265', sdp: 'offer' });
   assert.equal(created, false);
-  assert.deepEqual(f.sent, [{ type: 'rtc-fallback', id: 10 }]);
+  assert.deepEqual(f.sent, [{ type: 'rtc-fallback', id: 10, retryable: false }]);
   assert.equal(f.receiver.active, false);
 });
 
@@ -182,7 +197,7 @@ test('HEVC negotiates its own codec and waits for decoded output; rejected media
   assert.equal(f.receiver.active, true);
   f.pc.createAnswer = async () => ({ type: 'answer', sdp: 'm=video 0 UDP/TLS/RTP/SAVPF 96\r\n' });
   await f.receiver.receive({ type: 'rtc-offer', id: 12, codec: 'H265', sdp: 'offer' });
-  assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: 12 });
+  assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: 12, retryable: false });
   assert.equal(f.receiver.active, false);
 });
 

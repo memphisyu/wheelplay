@@ -107,11 +107,16 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Install media verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       - run: npm ci --no-audit --no-fund
       - run: npm test && npm run check
       - name: Real Chromium presentation regression
         env:
           BROWSER_BIN: google-chrome
+          FFMPEG_BIN: /usr/bin/ffmpeg
         run: npm run test:browser:media
       - name: Native framing and packetizer sanitizers
         run: |

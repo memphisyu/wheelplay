@@ -8,13 +8,19 @@ import kotlin.math.roundToInt
 enum class CarPlayAppearance(@param:androidx.annotation.StringRes val labelRes: Int) {
     SYSTEM(UiR.string.ui_follow_android),
     DAY(UiR.string.ui_always_day),
-    NIGHT(UiR.string.ui_always_night);
+    NIGHT(UiR.string.ui_always_night),
+    SCHEDULE(com.shilapi.xcertplay.host.R.string.xp_appearance_schedule),
+    BROWSER(com.shilapi.xcertplay.host.R.string.xp_appearance_browser);
 
-    fun night(systemNight: Boolean): Boolean =
+    fun night(systemNight: Boolean,
+        minute: Int = java.time.LocalTime.now().let { it.hour * 60 + it.minute },
+        schedule: NightSchedule = NightSchedule(), browserNight: Boolean? = null): Boolean =
         when (this) {
             SYSTEM -> systemNight
             DAY -> false
             NIGHT -> true
+            SCHEDULE -> schedule.nightAt(minute)
+            BROWSER -> browserNight ?: schedule.nightAt(minute)
         }
 }
 

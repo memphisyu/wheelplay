@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.update
 
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.i18n.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -23,8 +25,9 @@ internal data class UpdateVersion(val major: Int, val minor: Int, val patch: Int
     }
 }
 internal enum class UpdateChannel(val label: String, val origin: String, val api: String) {
-    GITEE("Gitee（国内）", "https://gitee.com", "https://gitee.com/api/v5"),
+    GITEE("Gitee", "https://gitee.com", "https://gitee.com/api/v5"),
     GITHUB("GitHub", "https://github.com", "https://api.github.com");
+    fun label(context: android.content.Context) = context.getString(if (this == GITEE) R.string.xp_channel_gitee else R.string.xp_channel_github)
     fun catalog(page: Int) = "$api/repos/memphisyu/wheelplay/releases?per_page=100&page=$page"
     fun assetUrl(tag: String, name: String) = "$origin/memphisyu/wheelplay/releases/download/$tag/$name"
 }
@@ -63,7 +66,7 @@ internal object UpdateCatalog {
         }
     }
     fun latest(releases: List<UpdateRelease>, current: String): UpdateRelease? {
-        val installed = requireNotNull(UpdateVersion.parse(current)) { "无法识别当前版本" }
+        val installed = (UpdateVersion.parse(current) ?: errorUi(UiText(R.string.xp_version_invalid)))
         return releases.filter { it.version > installed }.maxByOrNull { it.version }
     }
     fun checksum(text: String, apkName: String): String {
@@ -71,12 +74,12 @@ internal object UpdateCatalog {
             Regex("^([a-fA-F0-9]{64})[ \\t]+\\*?(.+)$").matchEntire(line.trim())
                 ?.takeIf { it.groupValues[2] == apkName }?.groupValues?.get(1)?.lowercase()
         }.toList()
-        require(matches.size == 1) { "校验文件缺少唯一的 APK SHA-256" }
+        requireUi(matches.size == 1) { UiText(R.string.xp_checksum_missing) }
         return matches.single()
     }
     fun stageFile(downloaded: File, directory: File, key: String, checksum: String): File {
         require(safeName(key))
-        check(directory.isDirectory || directory.mkdirs()) { "无法创建私有更新目录" }
+        checkUi(directory.isDirectory || directory.mkdirs()) { UiText(R.string.xp_private_directory) }
         val staged = File(directory, "$key.apk")
         if (staged.exists()) { verifyFile(staged, checksum); return staged }
         val temporary = File.createTempFile("download-", ".part", directory)
@@ -84,18 +87,18 @@ internal object UpdateCatalog {
             // Bound the copy as well as the hash check; only the private, checked file is shared.
             downloaded.inputStream().use { input -> temporary.outputStream().use { output ->
                 val bytes = ByteArray(65536); var copied = 0L
-                while (true) { val n = input.read(bytes); if (n < 0) break; copied += n; require(copied <= 200L * 1024 * 1024) { "更新包大小异常" }; output.write(bytes, 0, n) }
+                while (true) { val n = input.read(bytes); if (n < 0) break; copied += n; requireUi(copied <= 200L * 1024 * 1024) { UiText(R.string.xp_size_invalid) }; output.write(bytes, 0, n) }
             } }
             verifyFile(temporary, checksum)
-            check(temporary.renameTo(staged)) { "无法保存已校验更新包" }
+            checkUi(temporary.renameTo(staged)) { UiText(R.string.xp_save_verified) }
             return staged
         } finally { temporary.delete() }
     }
     fun verifyFile(file: File, checksum: String) {
-        require(file.length() in 1..200L * 1024 * 1024) { "更新包大小异常" }
+        requireUi(file.length() in 1..200L * 1024 * 1024) { UiText(R.string.xp_size_invalid) }
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input -> val bytes = ByteArray(65536); while (true) { val n = input.read(bytes); if (n < 0) break; digest.update(bytes, 0, n) } }
-        require(digest.digest().joinToString("") { "%02x".format(it) } == checksum) { "更新包校验失败，请重新下载" }
+        requireUi(digest.digest().joinToString("") { "%02x".format(it) } == checksum) { UiText(R.string.xp_checksum_failed) }
     }
 }
 internal class UpdateClient(private val read: (String, Int) -> String = UpdateHttp::read) {
@@ -106,7 +109,7 @@ internal class UpdateClient(private val read: (String, Int) -> String = UpdateHt
             releases += UpdateCatalog.parse(raw, channel, preview)
             if (JSONArray(raw).length() < 100) return UpdateCatalog.latest(releases, current)
         }
-        error("发行版列表过长，请前往仓库查看")
+        errorUi(UiText(R.string.xp_catalog_long))
     }
     fun checksum(release: UpdateRelease) = UpdateCatalog.checksum(read(release.checksumUrl, 65536), release.apkName)
 }
@@ -115,34 +118,34 @@ internal object UpdateHttp {
         var target = address
         repeat(6) {
             val uri = URI(target)
-            require(uri.scheme == "https" && uri.host != null && uri.userInfo == null) { "更新地址必须使用 HTTPS" }
+            requireUi(uri.scheme == "https" && uri.host != null && uri.userInfo == null) { UiText(R.string.xp_https_required) }
             val c = URL(target).openConnection() as HttpURLConnection
             try {
                 c.connectTimeout = 15000; c.readTimeout = 20000; c.instanceFollowRedirects = false
                 c.setRequestProperty("User-Agent", "WheelPlay-Xpeng-Updater")
                 c.setRequestProperty("Accept", "application/json, text/plain, */*")
                 when (c.responseCode) {
-                    in 300..399 -> { target = uri.resolve(c.getHeaderField("Location") ?: error("更新地址跳转异常")).toString() }
+                    in 300..399 -> { target = uri.resolve(c.getHeaderField("Location") ?: errorUi(UiText(R.string.xp_redirect_invalid))).toString() }
                     200 -> return c.inputStream.use { input ->
                         val output = java.io.ByteArrayOutputStream()
                         val chunk = ByteArray(8192)
-                        while (true) { val n = input.read(chunk); if (n < 0) break; require(output.size() + n <= limit) { "更新响应过大" }; output.write(chunk, 0, n) }
+                        while (true) { val n = input.read(chunk); if (n < 0) break; requireUi(output.size() + n <= limit) { UiText(R.string.xp_response_large) }; output.write(chunk, 0, n) }
                         output.toString("UTF-8")
                     }
-                    403, 429 -> error("更新渠道访问受限，请稍后重试或切换渠道")
-                    else -> error("更新渠道返回 HTTP ${c.responseCode}，请重试或切换渠道")
+                    403, 429 -> errorUi(UiText(R.string.xp_rate_limited))
+                    else -> errorUi(UiText(R.string.xp_http_error, listOf(c.responseCode.toString())))
                 }
             } finally { c.disconnect() }
         }
-        error("更新地址跳转次数过多")
+        errorUi(UiText(R.string.xp_redirect_limit))
     }
 }
 internal data class ApkIdentity(val packageName: String, val versionCode: Long, val versionName: String, val signers: Set<String>)
 internal object UpdateInstallPolicy {
     fun verify(installed: ApkIdentity, downloaded: ApkIdentity, release: UpdateRelease) {
-        require(downloaded.packageName == installed.packageName) { "更新包包名不匹配" }
-        require(downloaded.versionCode > installed.versionCode) { "更新包版本不高于当前安装版本" }
-        require(UpdateVersion.parse(downloaded.versionName) == release.version) { "更新包版本与发行版不一致" }
-        require(installed.signers.isNotEmpty() && downloaded.signers == installed.signers) { "更新包签名不匹配" }
+        requireUi(downloaded.packageName == installed.packageName) { UiText(R.string.xp_package_mismatch) }
+        requireUi(downloaded.versionCode > installed.versionCode) { UiText(R.string.xp_version_not_new) }
+        requireUi(UpdateVersion.parse(downloaded.versionName) == release.version) { UiText(R.string.xp_version_mismatch) }
+        requireUi(installed.signers.isNotEmpty() && downloaded.signers == installed.signers) { UiText(R.string.xp_signature_mismatch) }
     }
 }

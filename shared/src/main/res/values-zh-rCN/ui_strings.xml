@@ -503,7 +503,7 @@
     <string name="web_microphone_permission_denied_allow_this_site_to_use_the">麦克风权限被拒绝，请允许此站点访问麦克风后重试。</string>
     <string name="web_if_the_browser_blocks_autoplay_tap_the_display_to">如果浏览器阻止自动播放，请点按画面继续。</string>
     <string name="web_microphone_sample_format_unavailable_input_has_returned_to_android">此麦克风采样格式不可用，已恢复 Android 输入。</string>
-    <string name="web_wheelplay_head_unit_display">Wheelplay 小鹏定制版 · 车机显示端</string>
+    <string name="web_wheelplay_head_unit_display">WheelPlay · 车机显示端</string>
     <string name="web_disconnect">断开</string>
     <string name="web_local_network_head_unit_display">局域网 · 车机显示端</string>
     <string name="web_connect_your_carplay_display">连接 CarPlay 车机屏幕</string>

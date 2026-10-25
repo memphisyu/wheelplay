@@ -195,6 +195,7 @@ internal object WebSession {
         }
 
     fun viewerStateChanged() {
+        if (!hasViewer) browserNight = null
         val refresh = {
             experienceContext?.let {
                 offlineMonitor.refresh(
@@ -217,14 +218,28 @@ internal object WebSession {
         refreshAppearance(context)
     }
 
+    @Volatile private var browserNight: Boolean? = null
+    private var lastAppearanceOwner: Any? = null
+    private var lastAppearanceNight: Boolean? = null
+    fun setBrowserNight(context: Context, night: Boolean?) {
+        browserNight = night
+        refreshAppearance(context)
+    }
+    fun appearanceNight(context: Context): Boolean = AirPlayPersistence.loadAppearance(context)
+        .night(isDarkMode(context.resources.configuration.uiMode),
+            schedule = AirPlayPersistence.loadNightSchedule(context), browserNight = browserNight)
+
     fun refreshAppearance(context: Context) {
         val controller = projectionSessions.snapshot() ?: return
         preferenceExecutor.execute {
             if (projectionSessions.snapshot() === controller) {
-                val night =
-                    AirPlayPersistence.loadAppearance(context)
-                        .night(isDarkMode(context.resources.configuration.uiMode))
-                projectionSessions.setNightMode(controller, night)
+                val night = appearanceNight(context)
+                if (lastAppearanceOwner !== controller || lastAppearanceNight != night) {
+                    if (projectionSessions.setNightMode(controller, night) == com.shilapi.xcertplay.projection.ProjectionCommandResult.SENT) {
+                        lastAppearanceOwner = controller
+                        lastAppearanceNight = night
+                    }
+                }
             }
         }
     }
@@ -537,7 +552,7 @@ internal object WebSession {
         mdns?.close()
         mdns = if (server != null && enabled) WebMdns(context.applicationContext) else null
         null
-    }.getOrElse { it.message ?: "mDNS configuration failed" }
+    }.getOrElse { it.userMessage(context).ifEmpty { context.getString(R.string.xp_mdns_failed) } }
 
     fun restoreDefaultCertificate(context: Context): String? =
         runCatching {

@@ -144,7 +144,7 @@ private fun SettingsIndexScreen(
     actions: SettingsActions,
     onCategory: (SettingsCategory?) -> Unit,
 ) {
-    Button(onClick = { actions.command(SettingsCommand.XPENG_TOOLS) }) { Text("应用更新 / 小鹏后台保活") }
+    Button(onClick = { actions.command(SettingsCommand.XPENG_TOOLS) }) { Text(settingsString(R.string.xp_tools)) }
     Card(
         onClick = { actions.command(SettingsCommand.DIPLAY) },
         modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),

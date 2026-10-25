@@ -19,6 +19,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.shilapi.xcertplay.ServerUi
 import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.i18n.*
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -43,7 +45,7 @@ internal class AppUpdateUi(private val activity: AppCompatActivity) {
     private var resumed = false
     private var busy = false
     private var ready = false
-    private var status = "当前版本 $currentVersion；检查和下载均由你手动发起。"
+    private var status = activity.getString(R.string.xp_current, currentVersion)
     private var statusView: TextView? = null
     private var channelButton: Button? = null
     private var checkButton: Button? = null
@@ -62,20 +64,20 @@ internal class AppUpdateUi(private val activity: AppCompatActivity) {
                 release!!.version <= requireNotNull(UpdateVersion.parse(currentVersion)))) clearDownload()
     }
     fun bind(card: LinearLayout) {
-        channelButton = ui.button("更新渠道：${channel.label}") { chooseChannel() }.also { card.addView(it, ui.secondaryButtonLayout(8)) }
+        channelButton = ui.button(activity.getString(R.string.xp_channel, channel.label(activity))) { chooseChannel() }.also { card.addView(it, ui.secondaryButtonLayout(8)) }
         previewSwitch = MaterialSwitch(activity).apply {
-            text = "包含预发布版本（RC）"; isChecked = preview
+            text = activity.getString(R.string.xp_preview); isChecked = preview
             setOnCheckedChangeListener { _, checked ->
                 preview = checked; prefs.edit().putBoolean("preview", checked).apply(); selected = null
-                status = "版本范围已更改，请重新检查更新。"; render()
+                status = activity.getString(R.string.xp_range_changed); render()
             }
         }.also { card.addView(it) }
         statusView = ui.text(status, 14).also { card.addView(it) }
-        checkButton = ui.button("检查更新") { check() }.also { card.addView(it, ui.secondaryButtonLayout(12)) }
-        actionButton = ui.button("下载更新", true) { if (ready) install() else offerDownload() }.also { card.addView(it, ui.secondaryButtonLayout(12)) }
-        cancelButton = ui.button("取消下载 / 清除更新包") { clearDownload(); status = "已清除更新下载，可重新检查或切换渠道。"; render() }
+        checkButton = ui.button(activity.getString(R.string.xp_check_updates)) { check() }.also { card.addView(it, ui.secondaryButtonLayout(12)) }
+        actionButton = ui.button(activity.getString(R.string.xp_download_update), true) { if (ready) install() else offerDownload() }.also { card.addView(it, ui.secondaryButtonLayout(12)) }
+        cancelButton = ui.button(activity.getString(R.string.xp_clear_download)) { clearDownload(); status = activity.getString(R.string.xp_cleared); render() }
             .also { card.addView(it, ui.secondaryButtonLayout(12)) }
-        card.addView(ui.text("先下载并校验，再由系统确认安装。安装会重启应用；请在停车并结束投屏后操作。", 14))
+        card.addView(ui.text(activity.getString(R.string.xp_install_help), 14))
         render()
     }
     fun resume() { resumed = true; main.removeCallbacks(poll); main.post(poll) }
@@ -84,23 +86,23 @@ internal class AppUpdateUi(private val activity: AppCompatActivity) {
     private fun render() {
         if (closed) return
         statusView?.text = status
-        channelButton?.text = "更新渠道：${channel.label}"
+        channelButton?.text = activity.getString(R.string.xp_channel, channel.label(activity))
         channelButton?.isEnabled = !busy && downloadId < 0
         previewSwitch?.isEnabled = !busy && downloadId < 0
         checkButton?.isEnabled = !busy && downloadId < 0
         actionButton?.apply {
-            text = if (ready) "校验并安装更新" else "下载更新"
+            text = if (ready) activity.getString(R.string.xp_verify_install) else activity.getString(R.string.xp_download_update)
             visibility = if (ready || selected != null && downloadId < 0) View.VISIBLE else View.GONE
             isEnabled = !busy
         }
         cancelButton?.apply { visibility = if (downloadId >= 0) View.VISIBLE else View.GONE; isEnabled = !busy }
     }
     private fun chooseChannel() {
-        MaterialAlertDialogBuilder(activity).setTitle("更新渠道")
-            .setSingleChoiceItems(UpdateChannel.entries.map { it.label }.toTypedArray(), channel.ordinal) { dialog, which ->
+        MaterialAlertDialogBuilder(activity).setTitle(activity.getString(R.string.xp_update_channel))
+            .setSingleChoiceItems(UpdateChannel.entries.map { it.label(activity) }.toTypedArray(), channel.ordinal) { dialog, which ->
                 channel = UpdateChannel.entries[which]; prefs.edit().putString("channel", channel.name).apply()
-                selected = null; status = "已选择 ${channel.label}，请检查更新。"; render(); dialog.dismiss()
-            }.setNegativeButton("取消", null).show()
+                selected = null; status = activity.getString(R.string.xp_selected, channel.label(activity)); render(); dialog.dismiss()
+            }.setNegativeButton(activity.getString(R.string.xp_cancel), null).show()
     }
     private fun <T> work(message: String, action: () -> T, success: (T) -> Unit) {
         if (busy || closed) return
@@ -110,7 +112,7 @@ internal class AppUpdateUi(private val activity: AppCompatActivity) {
             main.post {
                 if (!closed && !activity.isFinishing && !activity.isDestroyed) {
                     busy = false
-                    result.fold(success, { status = it.message?.take(240) ?: "更新操作失败，请重试或切换渠道。" })
+                    result.fold(success, { status = it.userMessage(activity).take(240).ifEmpty { activity.getString(R.string.xp_update_failed) } })
                     render()
                 }
             }
@@ -118,64 +120,64 @@ internal class AppUpdateUi(private val activity: AppCompatActivity) {
     }
     private fun check() {
         val source = channel; val includeRc = preview; selected = null
-        work("正在通过 ${source.label} 检查更新…", { client.check(source, includeRc, currentVersion) }) { result ->
+        work(activity.getString(R.string.xp_checking, source.label(activity)), { client.check(source, includeRc, currentVersion) }) { result ->
             selected = result
-            status = if (result == null) "该渠道没有比 $currentVersion 更新的可用版本。" else "发现 ${result.tag} · ${source.label}"
+            status = if (result == null) activity.getString(R.string.xp_no_update, currentVersion) else activity.getString(R.string.xp_found, result.tag, source.label(activity))
             if (result != null && resumed) offerDownload()
         }
     }
     private fun offerDownload() {
         val candidate = selected ?: return
-        MaterialAlertDialogBuilder(activity).setTitle("更新至 ${candidate.tag}")
-            .setMessage("渠道：${candidate.channel.label}\n\n${candidate.notes.take(6000)}\n\n下载不安装；完成校验后还需确认安装。")
-            .setNegativeButton("稍后", null).setPositiveButton("下载更新") { _, _ -> download(candidate) }.show()
+        MaterialAlertDialogBuilder(activity).setTitle(activity.getString(R.string.xp_update_to, candidate.tag))
+            .setMessage(activity.getString(R.string.xp_offer, candidate.channel.label(activity), candidate.notes.take(6000)))
+            .setNegativeButton(activity.getString(R.string.xp_later), null).setPositiveButton(activity.getString(R.string.xp_download_update)) { _, _ -> download(candidate) }.show()
     }
     private fun download(candidate: UpdateRelease) {
-        if (downloadId >= 0) { status = "已有更新下载，请先完成或取消。"; render(); return }
-        work("正在读取更新包校验信息…", { client.checksum(candidate) }) { expected ->
+        if (downloadId >= 0) { status = activity.getString(R.string.xp_already_downloading); render(); return }
+        work(activity.getString(R.string.xp_reading_checksum), { client.checksum(candidate) }) { expected ->
             runCatching {
                 val destination = destination(candidate); destination.parentFile?.mkdirs()
-                check(!destination.exists() || destination.delete()) { "旧更新文件无法清理" }
+                check(!destination.exists() || destination.delete()) { activity.getString(R.string.xp_old_file) }
                 val request = DownloadManager.Request(Uri.parse(candidate.apkUrl))
-                    .setTitle("WheelPlay ${candidate.tag}").setDescription(candidate.channel.label)
+                    .setTitle("WheelPlay ${candidate.tag}").setDescription(candidate.channel.label(activity))
                     .setMimeType("application/vnd.android.package-archive")
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationUri(Uri.fromFile(destination))
                 val id = manager.enqueue(request)
                 if (!prefs.edit().putLong("download", id).putString("release", candidate.json()).putString("sha256", expected).commit()) {
-                    manager.remove(id); error("无法保存更新任务，请重试")
+                    manager.remove(id); error(activity.getString(R.string.xp_save_task))
                 }
                 release = candidate; checksum = expected; downloadId = id; ready = false; selected = null
-                status = "下载已开始，系统通知栏可查看进度。"
+                status = activity.getString(R.string.xp_download_started)
                 main.removeCallbacks(poll); if (resumed) main.post(poll)
-            }.onFailure { status = it.message ?: "无法启动系统下载，请检查下载管理器。" }
+            }.onFailure { status = it.userMessage(activity).ifEmpty { activity.getString(R.string.xp_download_start_failed) } }
         }
     }
     private fun destination(r: UpdateRelease): File {
-        val root = requireNotNull(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)) { "下载目录不可用" }
+        val root = requireNotNull(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)) { activity.getString(R.string.xp_directory_unavailable) }
         return File(root, "updates/${r.tag}.apk")
     }
     private fun refreshDownload() {
         if (downloadId < 0) return
         runCatching {
             manager.query(DownloadManager.Query().setFilterById(downloadId)).use { c ->
-                if (!c.moveToFirst()) { clearDownload(); status = "下载任务不存在，请重新检查更新。"; return@use }
+                if (!c.moveToFirst()) { clearDownload(); status = activity.getString(R.string.xp_missing_task); return@use }
                 when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
-                    DownloadManager.STATUS_SUCCESSFUL -> { if (!ready) status = "${release?.tag} 已下载；点击后校验并安装。"; ready = true }
+                    DownloadManager.STATUS_SUCCESSFUL -> { if (!ready) status = activity.getString(R.string.xp_downloaded, release?.tag.toString()); ready = true }
                     DownloadManager.STATUS_FAILED -> {
                         val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-                        clearDownload(); status = "下载失败（$reason），请检查网络、空间，或切换渠道重试。"
+                        clearDownload(); status = activity.getString(R.string.xp_download_failed, reason.toString())
                     }
                     else -> {
                         val total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
                         val done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                         if (total > 200L * 1024 * 1024 || done > 200L * 1024 * 1024) {
-                            clearDownload(); status = "更新包大小异常，下载已取消。"
-                        } else status = "${release?.tag} 下载中 · ${if (total > 0) "${done * 100 / total}%" else "${done / 1024} KB"}（系统会自动重试网络中断）"
+                            clearDownload(); status = activity.getString(R.string.xp_size_cancelled)
+                        } else status = activity.getString(R.string.xp_progress, release?.tag.toString(), if (total > 0) "${done * 100 / total}%" else "${done / 1024} KB")
                     }
                 }
             }
-        }.onFailure { status = "无法查询下载状态，请检查系统下载管理器。" }
+        }.onFailure { status = activity.getString(R.string.xp_query_failed) }
         render()
     }
     private fun clearDownload() {
@@ -194,30 +196,30 @@ internal class AppUpdateUi(private val activity: AppCompatActivity) {
     @Suppress("DEPRECATION")
     private fun install() {
         val candidate = release ?: return
-        MaterialAlertDialogBuilder(activity).setTitle("安装更新")
-            .setMessage(if (CarPlayBackgroundSession.hasSession()) "当前正在投屏，安装更新会中断连接并重启应用。请停车后继续。" else "系统将确认安装 ${candidate.tag}，应用数据会保留。")
-            .setNegativeButton("取消", null).setPositiveButton("继续") { _, _ ->
-                work("正在校验 APK 完整性、版本和签名…", {
+        MaterialAlertDialogBuilder(activity).setTitle(activity.getString(R.string.xp_install_update))
+            .setMessage(if (CarPlayBackgroundSession.hasSession()) activity.getString(R.string.xp_projection_warning) else activity.getString(R.string.xp_install_confirm, candidate.tag))
+            .setNegativeButton(activity.getString(R.string.xp_cancel), null).setPositiveButton(activity.getString(R.string.xp_continue)) { _, _ ->
+                work(activity.getString(R.string.xp_verifying), {
                     val file = UpdateCatalog.stageFile(destination(candidate), File(activity.filesDir, "updates"),
                         "${candidate.tag}-$downloadId", checksum)
                     @Suppress("DEPRECATION")
                     val apk = activity.packageManager.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-                        ?: error("下载内容不是有效 APK，请清除后重新下载")
+                        ?: error(activity.getString(R.string.xp_invalid_apk))
                     UpdateInstallPolicy.verify(identity(installed()), identity(apk), candidate)
                     file
                 }) { file ->
-                    if (!resumed) { status = "校验已通过，请返回应用后再次确认安装。"; return@work }
+                    if (!resumed) { status = activity.getString(R.string.xp_return_install); return@work }
                     if (!activity.packageManager.canRequestPackageInstalls()) {
-                        status = "请允许本应用安装更新，返回后再次点“校验并安装更新”。"
+                        status = activity.getString(R.string.xp_allow_install)
                         runCatching { activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))) }
-                            .onFailure { status = "无法打开安装授权，请到系统设置中允许本应用安装未知应用。" }
+                            .onFailure { status = activity.getString(R.string.xp_permission_failed) }
                     } else {
                         runCatching {
                             val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", file)
                             activity.startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE).setData(uri)
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                            status = "已交给系统安装器，请确认安装。"
-                        }.onFailure { status = "无法启动安装器，请检查系统安装权限。" }
+                            status = activity.getString(R.string.xp_installer_started)
+                        }.onFailure { status = activity.getString(R.string.xp_installer_failed) }
                     }
                 }
             }.show()

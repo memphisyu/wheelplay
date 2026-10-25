@@ -17,8 +17,8 @@ import com.shilapi.xcertplay.web.WebListenSettings
 internal fun WebSettingsScreen(state: SettingsState, actions: SettingsActions) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var mdnsEnabled by remember { mutableStateOf(com.shilapi.xcertplay.web.WebListenSettings.mdnsEnabled(context)) }
-    androidx.compose.foundation.layout.Row {
-        androidx.compose.material3.Text("启用 mDNS 本地域名（默认关闭）")
+    androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.Text(settingsString(R.string.xp_mdns_enabled), Modifier.weight(1f))
         androidx.compose.material3.Switch(checked = mdnsEnabled, onCheckedChange = {
             if (com.shilapi.xcertplay.web.WebSession.setMdnsEnabled(context, it) == null) mdnsEnabled = it
         })

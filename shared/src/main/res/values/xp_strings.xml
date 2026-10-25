@@ -1,0 +1,28 @@
+<resources>
+    <string name="xp_web_diagnostics">Media diagnostics</string>
+    <string name="xp_web_probe_help">Park before checking audio. A short test tone temporarily pauses browser audio and microphone. Lower the volume first</string>
+    <string name="xp_web_probe_start">Start audio check</string>
+    <string name="xp_web_probe_stop">Stop check and resume CarPlay</string>
+    <string name="xp_web_probe_visible">Show audio player (optional)</string>
+    <string name="xp_web_probe_controls">CarPlay controls: these buttons control the iPhone</string>
+    <string name="xp_web_previous">Previous</string>
+    <string name="xp_web_play">Play</string>
+    <string name="xp_web_pause">Pause</string>
+    <string name="xp_web_next">Next</string>
+    <string name="xp_web_export">Export diagnostics</string>
+    <string name="xp_web_collapse">Close panel</string>
+    <string name="xp_web_probe_artist">Local test tone</string>
+    <string name="xp_web_probe_album">Media control check</string>
+    <string name="xp_web_music_allow">Tap the display to allow music playback</string>
+    <string name="xp_web_music_buffer">Music buffer stalled. Tap the display or reconnect</string>
+    <string name="xp_web_mic_format">Unsupported microphone sample format</string>
+    <string name="xp_web_audio_allow">Tap the display to allow audio playback</string>
+    <string name="xp_web_mic_stopped">Microphone stopped. Audio input returned to Android</string>
+    <string name="xp_web_mic_denied">Microphone permission denied. Allow microphone access for this site and try again</string>
+    <string name="xp_web_mic_https">Browser microphone requires trusted HTTPS. Open the HTTPS address and configure a certificate</string>
+    <string name="xp_web_mic_unsupported">This browser cannot process microphone audio. Use the Android microphone</string>
+    <string name="xp_web_music_fallback">Music playback failed; using compatibility output: </string>
+    <string name="xp_web_autoplay">If autoplay is blocked, tap the display to continue</string>
+    <string name="xp_web_mic_unavailable">Microphone format unavailable. Audio input returned to Android</string>
+    <string name="xp_web_probe_title">WheelPlay audio check %1$s</string>
+</resources>

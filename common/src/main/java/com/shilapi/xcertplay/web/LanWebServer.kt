@@ -179,6 +179,7 @@ internal class LanWebServer(
                 "/browser-audio.js" -> "browser-audio.js" to "text/javascript; charset=utf-8"
                 "/browser-location.js" -> "browser-location.js" to "text/javascript; charset=utf-8"
                 "/browser-media-session.js" -> "browser-media-session.js" to "text/javascript; charset=utf-8"
+                "/browser-theme.js" -> "browser-theme.js" to "text/javascript; charset=utf-8"
                 "/flac-mp4.js" -> "flac-mp4.js" to "text/javascript; charset=utf-8"
                 "/mse-music.js" -> "mse-music.js" to "text/javascript; charset=utf-8"
                 "/media-probe.js" -> "media-probe.js" to "text/javascript; charset=utf-8"
@@ -576,6 +577,7 @@ internal class LanWebServer(
                     return
                 }
                 viewer = this
+                WebSession.setBrowserNight(context, null)
                 WebSession.location.attach(this, secure)
                 WebSession.viewerStateChanged()
                 WebSession.audio.attach(
@@ -638,6 +640,7 @@ internal class LanWebServer(
                     require(message.binaryPayload.size <= 2048)
                 lastSeen = SystemClock.elapsedRealtime()
                 when (data.getString("type")) {
+                    "browser-theme" -> WebSession.setBrowserNight(context, data.getBoolean("night"))
                     "location-start", "location-stop", "location-clear", "location" ->
                         WebSession.location.control(this, data)
                     "media-command" -> {
@@ -694,6 +697,8 @@ internal class LanWebServer(
                                 WebStreamSender.Control.STATUS,
                                 JSONObject()
                                     .put("type", "status")
+                                    .put("appearance", com.shilapi.xcertplay.AirPlayPersistence.loadAppearance(context).name)
+                                    .put("night", WebSession.appearanceNight(context))
                                     .put("width", media.width)
                                     .put("height", media.height)
                                     .put("mediaProtocol", imageProtocol.coerceAtLeast(2))

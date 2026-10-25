@@ -23,7 +23,7 @@ function image(width, height, codec = 'mjpeg') {
 const images = { jpeg: [image(320, 180), image(180, 320)], webp: [image(320, 180, 'libwebp'), image(180, 320, 'libwebp')] };
 let viewer, connections = 0, acks = 0, paused = false, sequence = 0, format = 'jpeg', jpegFallbacks = 0, webpProbes = 0;
 const pendingImages = new Map();
-const touches = [], errors = [], mediaCommands = [], desktopInputs = [];
+const touches = [], errors = [], mediaCommands = [], desktopInputs = [], themeReports = [];
 let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
@@ -41,7 +41,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/i18n.js') {
     res.setHeader('Content-Type', 'text/javascript'); res.end(`globalThis.wheelplayMessages=${JSON.stringify(messages)};`); return;
   }
-  const file = { '/': 'index.html', '/app.js': 'app.js', '/flac-mp4.js': 'flac-mp4.js', '/mse-music.js': 'mse-music.js', '/media-probe.js': 'media-probe.js', '/xpeng-diagnostics.js': 'xpeng-diagnostics.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
+  const file = { '/': 'index.html', '/app.js': 'app.js', '/browser-theme.js':'browser-theme.js', '/flac-mp4.js': 'flac-mp4.js', '/mse-music.js': 'mse-music.js', '/media-probe.js': 'media-probe.js', '/xpeng-diagnostics.js': 'xpeng-diagnostics.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
     '/style.css': 'style.css', '/audio-worklet.js': 'audio-worklet.js' }[req.url];
   if (!file) { res.writeHead(404); res.end(); return; }
   let body = await readFile(new URL(file, root));
@@ -70,6 +70,7 @@ wss.on('connection', ws => {
   ws.on('message', data => {
     const message = JSON.parse(data);
     if (message.type === 'input') desktopInputs.push(message);
+    if (message.type === 'browser-theme') themeReports.push(message);
     if (message.type === 'ack') {
       assert.deepEqual(pendingImages.get(message.sequence), { sessionId: message.sessionId, videoEpoch: message.videoEpoch });
       pendingImages.delete(message.sequence); acks++;
@@ -150,6 +151,19 @@ try {
   await wait(`!!window.wheelplayStats && !!document.getElementById('connect') && !document.getElementById('connect').disabled`);
   await evaluate(`document.getElementById('code').value='123456';document.getElementById('connect-form').requestSubmit()`);
   await wait(showing);
+  status({ appearance: 'DAY', night: false });
+  await wait(`document.documentElement.dataset.theme === 'day'`);
+  assert.equal(await evaluate('getComputedStyle(document.body).backgroundColor'), 'rgb(243, 246, 244)');
+  status({ appearance: 'NIGHT', night: true });
+  await wait(`document.documentElement.dataset.theme === 'night'`);
+  status({ appearance: 'BROWSER', night: false });
+  await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+  await wait(`document.documentElement.dataset.theme === 'night'`);
+  for (let attempt = 0; themeReports.at(-1)?.night !== true && attempt < 100; attempt++) await pause(10);
+  assert.equal(themeReports.at(-1).night, true, 'Browser dark mode must reach the host');
+  await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await wait(`document.documentElement.dataset.theme === 'day'`);
+  status({ appearance: 'SYSTEM', night: false });
   await evaluate(`
     window.mediaHandlers = {};
     const originalActionHandler = MediaSession.prototype.setActionHandler;
@@ -299,7 +313,7 @@ try {
   frame(); await wait(showing);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
-    checks: ['five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
+    checks: ['fixed and browser-following day/night modes', 'five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
       'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));

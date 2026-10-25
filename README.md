@@ -6,7 +6,13 @@ Run CarPlay on an Android device and use it from your car's browser. WheelPlay h
 
 [GitHub releases](https://github.com/memphisyu/wheelplay/releases) · [Gitee mirror](https://gitee.com/memphisyu/wheelplay/releases) · [Upstream](https://github.com/fython/wheelplay)
 
-This is the XPENG `xpeng` fork. The local 1.0.2 RC4 integration candidate incorporates upstream `0db266b`; it has not been published. It preserves XPENG MSE/FLAC browser music, metadata/artwork, steering controls, opt-in Root background support and dual-channel in-app updates. Open **应用更新 / 小鹏后台保活** in the categorized settings. JPEG and native video remain defaults; experimental sources and optional features require device validation. Close old browser tabs after upgrading and reopen the app address. See the [sync ledger](docs/UPSTREAM-SYNC.md).
+This is the XPENG `xpeng` fork. The current stable version is **1.0.2**. It retains browser music, metadata/artwork, steering controls, background support and GitHub/Gitee in-app updates. Actual car compatibility still needs device validation.
+
+LAN discovery is enabled by default; explicit opt-outs are preserved. English, Simplified Chinese and Traditional Chinese cover the custom settings and messages. The settings home footer keeps the creator and community QR cards. The browser page uses the generic WheelPlay name.
+
+Day/night mode controls both projection and browser pages. Choose Android theme, fixed day/night, a configurable schedule (default 18:30–07:00), or car-browser theme reporting. The last option depends on browser support; select the schedule if the car browser does not track the vehicle theme. Controls are available under Display and Browser settings.
+
+Close old car-browser tabs after upgrading. JPEG/native video remain defaults; Android Auto/VNC are experimental. See the [release guide](docs/XPENG-1.0.2.md) and [sync ledger](docs/UPSTREAM-SYNC.md).
 
 ## What it supports
 

@@ -1,0 +1,28 @@
+<resources>
+    <string name="xp_web_diagnostics">媒體診斷</string>
+    <string name="xp_web_probe_help">請停車後檢查音訊。測試提示音播放期間會暫停瀏覽器音訊和麥克風，結束後還原；請先調低音量。</string>
+    <string name="xp_web_probe_start">開始播放器檢查</string>
+    <string name="xp_web_probe_stop">結束檢查並還原 CarPlay</string>
+    <string name="xp_web_probe_visible">顯示一般播放器（可取消以比較）</string>
+    <string name="xp_web_probe_controls">CarPlay 控制模式：以下按鈕控制 iPhone。</string>
+    <string name="xp_web_previous">上一首</string>
+    <string name="xp_web_play">播放</string>
+    <string name="xp_web_pause">暫停</string>
+    <string name="xp_web_next">下一首</string>
+    <string name="xp_web_export">匯出診斷 JSON</string>
+    <string name="xp_web_collapse">收起面板</string>
+    <string name="xp_web_probe_artist">本機提示音</string>
+    <string name="xp_web_probe_album">媒體控制檢查</string>
+    <string name="xp_web_music_allow">請點選畫面以允許播放音樂</string>
+    <string name="xp_web_music_buffer">音樂緩衝未繼續，請點選畫面或重新連線</string>
+    <string name="xp_web_mic_format">不支援此麥克風取樣格式</string>
+    <string name="xp_web_audio_allow">請點選畫面以允許播放音訊</string>
+    <string name="xp_web_mic_stopped">麥克風已停止，音訊輸入已還原至 Android。</string>
+    <string name="xp_web_mic_denied">麥克風權限遭拒，請允許此網站存取麥克風後重試。</string>
+    <string name="xp_web_mic_https">瀏覽器麥克風需要受信任的 HTTPS，請先開啟 HTTPS 入口並設定憑證。</string>
+    <string name="xp_web_mic_unsupported">此瀏覽器不支援麥克風音訊處理，請使用 Android 麥克風。</string>
+    <string name="xp_web_music_fallback">原生音樂播放失敗，已改用相容輸出：</string>
+    <string name="xp_web_autoplay">若瀏覽器阻止自動播放，請點選畫面繼續。</string>
+    <string name="xp_web_mic_unavailable">此麥克風取樣格式無法使用，已還原 Android 輸入。</string>
+    <string name="xp_web_probe_title">WheelPlay 音訊檢查 %1$s</string>
+</resources>

@@ -902,6 +902,26 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test fun browserThemeReportReachesHostAndRoundTripsInStatus() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        com.shilapi.xcertplay.AirPlayPersistence.saveAppearance(context, com.shilapi.xcertplay.CarPlayAppearance.BROWSER)
+        val server = LanWebServer(context, "123456")
+        server.start(5000, true)
+        try {
+            handshake("123456", media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                for (night in listOf(true, false)) {
+                    text(client, """{"type":"browser-theme","night":$night}""")
+                    text(client, """{"type":"ping"}""")
+                    var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                    while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                    assertEquals("BROWSER", status.getString("appearance"))
+                    assertEquals(night, status.getBoolean("night"))
+                }
+            }
+        } finally { server.stop(); WebSession.setBrowserNight(context, null) }
+    }
+
     @Test fun codeAuthenticationUsesTheSameThrottleAsWebSocketPairing() {
         val server = LanWebServer(org.robolectric.RuntimeEnvironment.getApplication(), "123456")
         server.start(5000, true)

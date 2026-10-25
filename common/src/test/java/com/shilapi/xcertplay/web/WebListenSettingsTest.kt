@@ -14,9 +14,9 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class WebListenSettingsTest {
-    @Test fun mdnsOptInPersistsWithoutChangingListeners() {
+    @Test fun mdnsDefaultsOnAndExplicitChoicePersistsWithoutChangingListeners() {
         val context = RuntimeEnvironment.getApplication()
-        assertFalse(WebListenSettings.mdnsEnabled(context))
+        assertTrue(WebListenSettings.mdnsEnabled(context))
         val http = WebListenSettings.httpPort(context)
         val https = WebListenSettings.httpsPort(context)
         WebListenSettings.saveMdnsEnabled(context, true)

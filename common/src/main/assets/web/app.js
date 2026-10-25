@@ -284,7 +284,7 @@ export function createControlOutbox(socket, {
         if (kind === 'move' && tail && tail.kind === 'move' && tail.type === data.type && tail.eventKind === data.kind) tail.json = json;
         else if (touches.length < 64) touches.push({ kind, json, type: data.type, eventKind: data.kind });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command', 'browser-theme'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
         if (data.type.startsWith('location-')) locationFix = null;
         signals.push(json);
@@ -677,6 +677,7 @@ export function createRtcReceiver(createRenderer, {
 import { createBrowserAudio } from './browser-audio.js';
 import { createBrowserLocation } from './browser-location.js';
 import { createXpengDiagnostics } from './xpeng-diagnostics.js';
+import { createBrowserTheme } from './browser-theme.js';
 import { createBrowserMediaSession } from './browser-media-session.js';
 
 if (typeof document !== 'undefined') {
@@ -947,6 +948,7 @@ if (typeof document !== 'undefined') {
     point: (event, surface, clamp) => mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height, clamp) });
   let desktopRevision = presentation.current.revision;
   const browserMedia = createBrowserMediaSession({ send });
+  const browserTheme = createBrowserTheme({ send });
   let audioDiagnostics = {};
   const browserAudio = createBrowserAudio({
     send,
@@ -1079,7 +1081,7 @@ if (typeof document !== 'undefined') {
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
     presentation.close(); cleanupRtc(); cleanupImage();
-    xpengDiagnostics.stop(); browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
+    xpengDiagnostics.stop(); browserTheme.close(); browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
     browserLocation.close();
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     syncDisplayZoom();
@@ -1106,7 +1108,7 @@ if (typeof document !== 'undefined') {
         cancelMove(); pointers.clear(); presentation.close(); ws.close();
       } });
       paired = true; attempts = 0; lastStatus = Date.now();
-      browserMedia.open(); browserAudio.attach();
+      browserMedia.open(); browserTheme.open(); browserAudio.attach();
       browserLocation.attach();
       cleanupRtc();
       presentation.open();
@@ -1185,6 +1187,7 @@ if (typeof document !== 'undefined') {
           const message = data.message; disconnect(); $('message').textContent = message; return;
         }
         if (data.type === 'status') {
+          browserTheme.receive(data);
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
           performanceStats.image = data.performance?.image ?? null;
@@ -1239,7 +1242,7 @@ if (typeof document !== 'undefined') {
       cancelMove();
       socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false;
       clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
-      xpengDiagnostics.stop(); browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
+      xpengDiagnostics.stop(); browserTheme.close(); browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
       browserLocation.close();
       if (stopped) return;
       if (!paired || ++attempts > 8) {

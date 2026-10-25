@@ -87,7 +87,7 @@ internal object WebListenSettings {
             .takeIf(TeslaHttpConfig::isHostname)
             .orEmpty()
 
-    fun mdnsEnabled(context: Context) = preferences(context).getBoolean("mdns_enabled", false)
+    fun mdnsEnabled(context: Context) = preferences(context).getBoolean("mdns_enabled", true)
     fun saveMdnsEnabled(context: Context, enabled: Boolean) {
         check(preferences(context).edit().putBoolean("mdns_enabled", enabled).commit())
     }

@@ -70,6 +70,7 @@ class BrowserPageRuntimeTest {
                         "app.js",
                         "text.js",
                         "browser-audio.js",
+                        "browser-theme.js",
                         "flac-mp4.js",
                         "mse-music.js",
                         "media-probe.js",

@@ -13,8 +13,8 @@ android {
         applicationId = "moe.feng.wheelplay.xpengaudio"
         minSdk = 28
         targetSdk = 36
-        versionCode = 42
-        versionName = "1.0.2-rc.4"
+        versionCode = 43
+        versionName = "1.0.2"
 
     }
 

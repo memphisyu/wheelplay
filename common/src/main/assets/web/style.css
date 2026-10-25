@@ -24,3 +24,14 @@
 #media-diagnostics-output{position:fixed;top:70px;left:5vw;width:90vw;max-height:70vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#111;color:#fff;padding:16px;z-index:100}
 #media-test-panel{position:fixed;top:70px;left:5vw;width:90vw;max-height:80vh;overflow:auto;background:#111;color:#fff;padding:16px;z-index:101}
 #media-live-output{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Browser chrome follows the selected projection appearance; the video pixels are unchanged. */
+:root[data-theme="day"]{color-scheme:light}
+html[data-theme="day"] body{background:#f3f6f4;color:#17251c}
+html[data-theme="day"] header,html[data-theme="day"] footer{border-color:#c6d1ca}
+html[data-theme="day"] p,html[data-theme="day"] #status,html[data-theme="day"] footer,html[data-theme="day"] small{color:#46564b}
+html[data-theme="day"] button,html[data-theme="day"] input,html[data-theme="day"] .renderer-card,html[data-theme="day"] .secure-setup,html[data-theme="day"] .qr-pairing,html[data-theme="day"] #remembered-device{background:#e2eae5;color:#17251c;border-color:#9bab9f}
+html[data-theme="day"] .primary,html[data-theme="day"] .renderer-card.selected{background:#c8decf;color:#17251c}
+html[data-theme="day"] .secure-links a,html[data-theme="day"] .eyebrow,html[data-theme="day"] .secure-setup summary,html[data-theme="day"] .secure-setup code,html[data-theme="day"] #remembered-device strong{color:#285c3a}
+html[data-theme="day"] #media-test-panel,html[data-theme="day"] #media-diagnostics-output{background:#f3f6f4;color:#17251c}
+html[data-theme="day"] #waiting{background:#f3f6f4;color:#17251c}

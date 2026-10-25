@@ -15,6 +15,7 @@ import java.util.Date
 
 @Composable
 internal fun BrowserSettingsScreen(state: SettingsState, actions: SettingsActions) {
+    AppearanceSettings(state, actions)
     var manage by remember { mutableStateOf(false) }
     SettingsDescription(R.string.settings_browser_description)
     SettingsRow(

@@ -503,7 +503,7 @@
     <string name="web_microphone_permission_denied_allow_this_site_to_use_the">Microphone permission denied. Allow this site to use the microphone and try again.</string>
     <string name="web_if_the_browser_blocks_autoplay_tap_the_display_to">If the browser blocks autoplay, tap the display to continue.</string>
     <string name="web_microphone_sample_format_unavailable_input_has_returned_to_android">Microphone sample format unavailable. Input has returned to Android.</string>
-    <string name="web_wheelplay_head_unit_display">Wheelplay 小鹏定制版 · Head-unit display</string>
+    <string name="web_wheelplay_head_unit_display">WheelPlay · Head-unit display</string>
     <string name="web_disconnect">Disconnect</string>
     <string name="web_local_network_head_unit_display">Local network · Head-unit display</string>
     <string name="web_connect_your_carplay_display">Connect your CarPlay display</string>

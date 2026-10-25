@@ -1,3 +1,4 @@
+import { t } from './text.js';
 import { createMseMusic } from './mse-music.js';
 // Independent of video transport: the same paired channel works with JPEG and WebRTC.
 export function decodeAudioPacket(buffer) {
@@ -13,7 +14,7 @@ export function decodeAudioPacket(buffer) {
 // Continuous box-filter resampling preserves phase across render quanta and averages before
 // downsampling. CarPlay's negotiated mic rates are <= the browser's hardware capture rate.
 export function createMicResampler(inputRate, outputRate, channels, emit) {
-  if (inputRate < outputRate || channels < 1 || channels > 2) throw new Error('不支持此麦克风采样格式');
+  if (inputRate < outputRate || channels < 1 || channels > 2) throw new Error(t('xp_web_mic_format'));
   const step = inputRate / outputRate, frameSamples = Math.round(outputRate / 50) * channels;
   let remaining = step, sum = 0, packet = new Int16Array(frameSamples), filled = 0;
   return input => {
@@ -68,7 +69,7 @@ export function createBrowserAudio({
   async function ready() {
     if (!context) context = createContext();
     await context.resume();
-    if (context.state !== 'running') throw new Error('请点按画面允许播放音频');
+    if (context.state !== 'running') throw new Error(t('xp_web_audio_allow'));
     return context;
   }
   function stopPlayback(id = null) {
@@ -98,13 +99,13 @@ export function createBrowserAudio({
       source = context.createMediaStreamSource(captured); source.connect(worklet); worklet.connect(context.destination);
       worklet.port.postMessage({ rate: message.rate, channels: message.channels });
       stream.getAudioTracks().forEach(track => { track.enabled = true; track.onended = () => {
-        if (captureGeneration === token) { microphone = false; stopMicrophone(); readyState(); state('麦克风已停止，音频输入已恢复到 Android。'); }
+        if (captureGeneration === token) { microphone = false; stopMicrophone(); readyState(); state(t('xp_web_mic_stopped')); }
       }; });
       state();
     } catch (error) {
       if (captureGeneration !== token) return;
       microphone = false; stopMicrophone(); readyState();
-      state(error.name === 'NotAllowedError' ? '麦克风权限被拒绝，请允许此站点访问麦克风后重试。' : error.message);
+      state(error.name === 'NotAllowedError' ? t('xp_web_mic_denied') : error.message);
     }
   }
   async function setPlayback(enabled) {
@@ -127,9 +128,9 @@ export function createBrowserAudio({
     stopMicrophone(); microphone = false; readyState();
     if (!enabled) { state(); return; }
     try {
-      if (!secure()) throw new Error('浏览器麦克风需要可信 HTTPS，请先打开 HTTPS 入口并配置证书。');
+      if (!secure()) throw new Error(t('xp_web_mic_https'));
       const audio = await ready();
-      if (!audio.audioWorklet) throw new Error('此浏览器不支持麦克风音频处理，请使用 Android 麦克风。');
+      if (!audio.audioWorklet) throw new Error(t('xp_web_mic_unsupported'));
       await audio.audioWorklet.addModule('/audio-worklet.js');
       if (microphoneGeneration !== token) return;
       worklet = createWorklet(audio);
@@ -143,7 +144,7 @@ export function createBrowserAudio({
     } catch (error) {
       if (microphoneGeneration !== token) return;
       stopMicrophone(); microphone = false; readyState();
-      state(error.name === 'NotAllowedError' ? '麦克风权限被拒绝，请允许此站点访问麦克风后重试。' : error.message);
+      state(error.name === 'NotAllowedError' ? t('xp_web_mic_denied') : error.message);
     }
   }
   function receive(buffer) {
@@ -157,7 +158,7 @@ export function createBrowserAudio({
         mseStream = frame.stream;
         mseMusic = createMseMusic({ rate: frame.rate, channels: frame.channels, mediaBufferMillis, onPlaying: () => { if (connected) state(); }, onError: (error, autoplay) => {
           if (autoplay) { state(error); return; }
-          mseMusic = null; mseFailed = true; state('原生音乐播放失败，已降级：' + error);
+          mseMusic = null; mseFailed = true; state(t('xp_web_music_fallback') + error);
         }});
         if (mseMusic) { mseMusic.start(); state(); }
       }
@@ -193,7 +194,7 @@ export function createBrowserAudio({
       }
       if (testMode) { desiredPlayback = message.playback === true; desiredMicrophone = message.microphone === true; return true; }
       const nextPlayback = message.playback === true, nextMicrophone = message.microphone === true;
-      if (nextPlayback && !playback || nextMicrophone && !microphone) state('如果浏览器阻止自动播放，请点按画面继续。');
+      if (nextPlayback && !playback || nextMicrophone && !microphone) state(t('xp_web_autoplay'));
       if (desiredPlayback !== nextPlayback) { desiredPlayback = nextPlayback; if (connected) setPlayback(nextPlayback); }
       if (desiredMicrophone !== nextMicrophone) { desiredMicrophone = nextMicrophone; if (connected) setMicrophone(nextMicrophone); }
       gestureRetry = false;
@@ -209,7 +210,7 @@ export function createBrowserAudio({
     if (message.type !== 'mic-config') return false;
     if (!microphone || !worklet || !connected) return true;
     if (![1, 2].includes(message.channels) || message.rate < 8000 || message.rate > context.sampleRate) {
-      setMicrophone(false); state('此麦克风采样格式不可用，已恢复 Android 输入。'); return true;
+      setMicrophone(false); state(t('xp_web_mic_unavailable')); return true;
     }
     micSequence = 0; startCapture(message);
     return true;

@@ -47,6 +47,7 @@ class DiPlaySessionService : Service() {
         override fun run() {
             if (!destroyed) {
                 RootKeepAlive.record(this@DiPlaySessionService, "heartbeat cpu=${wakeLock?.isHeld == true} web=${WebSession.running}")
+                WebSession.refreshAppearance(this@DiPlaySessionService)
                 main.postDelayed(this, 30000)
             }
         }
@@ -60,17 +61,17 @@ class DiPlaySessionService : Service() {
     private var lastBackgroundPrepare = 0L
     private fun prepareWirelessInBackground(): String {
         if (!RootKeepAlive.isEnabled(this) || !DiPlayPreferences.autoConnect(this) || !AirPlayPersistence.loadWirelessEnabled(this))
-            return "后台连接需要启用 Root 保活、打开应用时自动连接，并提前配置无线连接和权限"
+            return getString(R.string.xp_background_requirements)
         val now = android.os.SystemClock.elapsedRealtime()
-        if (backgroundPreparing.get() || lastBackgroundPrepare > 0 && now - lastBackgroundPrepare < 30000) return "后台连接准备已请求，请稍候"
-        if (!backgroundPreparing.compareAndSet(false, true)) return "后台连接准备中"
+        if (backgroundPreparing.get() || lastBackgroundPrepare > 0 && now - lastBackgroundPrepare < 30000) return getString(R.string.xp_background_requested)
+        if (!backgroundPreparing.compareAndSet(false, true)) return getString(R.string.xp_background_preparing)
         lastBackgroundPrepare = now
         Thread({
             try { if (!destroyed) RootKeepAlive.launchHost(this) }
             catch (error: Exception) { RootKeepAlive.record(this, "background prepare failed ${error.javaClass.simpleName}: ${error.message?.take(160)}") }
             finally { backgroundPreparing.set(false) }
         }, "wheelplay-background-prepare").start()
-        return "已请求后台准备无线连接；首次权限或设备选择仍需在 Android 上完成"
+        return getString(R.string.xp_background_started)
     }
     private var currentState = NowPlayingState()
     private var currentSession: MediaSession? = null

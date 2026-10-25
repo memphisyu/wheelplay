@@ -1,3 +1,4 @@
+import { t } from './text.js';
 // A finite, audible WAV uses the normal file player rather than srcObject/MediaStream.
 export function createProbeWav(frequency = 440, seconds = 30) {
   const rate = 16000, samples = rate * seconds, buffer = new ArrayBuffer(44 + samples * 2), view = new DataView(buffer);
@@ -27,7 +28,7 @@ export function createMediaProbe({ element, session = globalThis.navigator?.medi
   function metadata() {
     attempt(() => {
       if (!session) return;
-      if (Metadata) session.metadata = new Metadata({ title: `Wheelplay 音频检查 ${track + 1}`, artist: '本地提示音', album: '媒体控制检查' });
+      if (Metadata) session.metadata = new Metadata({ title: t('xp_web_probe_title', track + 1), artist: t('xp_web_probe_artist'), album: t('xp_web_probe_album') });
       session.playbackState = element.paused ? 'paused' : 'playing';
       session.setPositionState?.();
     });

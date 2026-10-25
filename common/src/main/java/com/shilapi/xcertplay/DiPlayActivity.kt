@@ -441,17 +441,17 @@ class DiPlayActivity : AppCompatActivity() {
                 setOnClickListener {
                     isEnabled = false
                     kotlin.concurrent.thread(name = "wheelplay-root-settings") {
-                        val result = runCatching(action).fold({ RootKeepAlive.summary(this@DiPlayActivity) }, { it.message ?: "Root operation failed" })
+                        val result = runCatching(action).fold({ RootKeepAlive.summary(this@DiPlayActivity) }, { it.userMessage(this@DiPlayActivity) })
                         runOnUiThread { status.text = result; isEnabled = true }
                     }
                 }
             })
         }
-        rootButton("应用 Root 保活") { RootKeepAlive.apply(this) }
-        rootButton("恢复应用添加的省电豁免") { RootKeepAlive.restore(this) }
+        rootButton(getString(R.string.xp_root_apply)) { RootKeepAlive.apply(this) }
+        rootButton(getString(R.string.xp_root_restore)) { RootKeepAlive.restore(this) }
         appUpdateUi.bind(content)
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("小鹏后台保活 / 应用更新")
+            .setTitle(getString(R.string.xp_tools_title))
             .setView(android.widget.ScrollView(this).apply { addView(content) })
             .setPositiveButton(android.R.string.ok, null).show()
     }

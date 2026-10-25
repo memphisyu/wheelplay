@@ -119,6 +119,15 @@ object AirPlayPersistence {
     fun saveAppearance(context: Context, value: CarPlayAppearance) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_APPEARANCE, value.name).apply()
     }
+    fun loadNightSchedule(context: Context): NightSchedule {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return runCatching { NightSchedule(prefs.getInt("night_start_minute", 1110), prefs.getInt("night_end_minute", 420)) }
+            .getOrDefault(NightSchedule())
+    }
+    fun saveNightSchedule(context: Context, schedule: NightSchedule) {
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt("night_start_minute", schedule.startMinute).putInt("night_end_minute", schedule.endMinute).commit())
+    }
     fun loadBrowserOfflinePolicy(context: Context): BrowserOfflinePolicy = BrowserOfflinePolicy.entries.firstOrNull {
         it.name == context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_BROWSER_OFFLINE, null)
     } ?: BrowserOfflinePolicy.KEEP

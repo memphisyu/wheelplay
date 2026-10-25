@@ -9,7 +9,7 @@ import com.shilapi.xcertplay.host.R
 @Composable
 internal fun HelpSettingsScreen(state: SettingsState, actions: SettingsActions) {
     Button(onClick = { actions.command(SettingsCommand.XPENG_TOOLS) }) {
-        Text("小鹏后台保活 / 应用更新")
+        Text(settingsString(R.string.xp_tools_title))
     }
     var fingerprint by remember { mutableStateOf(false) }
     SettingsGroup(R.string.settings_permissions_help) {

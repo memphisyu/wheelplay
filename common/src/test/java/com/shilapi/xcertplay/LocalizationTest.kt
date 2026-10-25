@@ -103,6 +103,7 @@ class LocalizationTest : ComposeSettingsTest() {
             val html = BrowserStrings.render(owner, template)
             assertTrue(html.contains(expected))
             assertFalse(html.contains("{{"))
+            assertFalse(html.contains("小鹏") || html.contains("小鵬") || html.contains("XPENG"))
             assertEquals(
                 owner.getString(UiR.string.web_start_display),
                 BrowserStrings.messages(owner).getString("web_start_display"),

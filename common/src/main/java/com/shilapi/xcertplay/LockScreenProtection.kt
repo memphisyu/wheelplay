@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.i18n.*
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.PowerManager
@@ -27,9 +29,9 @@ internal object RootKeepAlive {
     private fun run(script: String): String {
         val process = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
         try {
-            check(process.waitFor(20, TimeUnit.SECONDS)) { "Root 操作超时" }
+            checkUi(process.waitFor(20, TimeUnit.SECONDS)) { UiText(R.string.xp_root_timeout) }
             val output = process.inputStream.bufferedReader().readText()
-            check(process.exitValue() == 0) { "Root 操作失败：${output.take(240)}" }
+            checkUi(process.exitValue() == 0) { UiText(R.string.xp_root_failed) }
             return output
         } finally { process.destroy() }
     }
@@ -40,7 +42,7 @@ internal object RootKeepAlive {
             // Save ownership before mutation so a crash cannot lose the rollback record.
             check(prefs.edit().putBoolean("added", true).commit())
             run(command(pkg, true))
-            check(isListed(run("cmd deviceidle whitelist"), pkg)) { "系统未接受省电豁免" }
+            checkUi(isListed(run("cmd deviceidle whitelist"), pkg)) { UiText(R.string.xp_root_not_accepted) }
         }
         check(prefs.edit().putBoolean("enabled", true).commit())
         record(context, "root exemption applied")
@@ -54,11 +56,11 @@ internal object RootKeepAlive {
         return "am start --user current -f 0x10000000 -n $pkg/com.shilapi.xcertplay.CarPlayHostActivity"
     }
     fun launchHost(context: Context) {
-        check(isEnabled(context)) { "未启用应用管理的 Root 保活" }
-        check(DiPlayPreferences.autoConnect(context)) { "未启用自动连接" }
-        check(AirPlayPersistence.loadWirelessEnabled(context)) { "后台准备仅用于已配置的无线连接" }
+        checkUi(isEnabled(context)) { UiText(R.string.xp_root_not_enabled) }
+        checkUi(DiPlayPreferences.autoConnect(context)) { UiText(R.string.xp_auto_not_enabled) }
+        checkUi(AirPlayPersistence.loadWirelessEnabled(context)) { UiText(R.string.xp_wireless_only) }
         val result = run(hostLaunchCommand(context.packageName))
-        check(!result.contains("Error:", ignoreCase = true)) { "系统拒绝后台准备连接" }
+        checkUi(!result.contains("Error:", ignoreCase = true)) { UiText(R.string.xp_background_refused) }
         record(context, "root requested wireless host initialization; interactive=${context.getSystemService(PowerManager::class.java).isInteractive}")
     }
     @Synchronized fun reapplyIfOwned(context: Context) {
@@ -69,7 +71,7 @@ internal object RootKeepAlive {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean("added", false)) {
             run(command(context.packageName, false))
-            check(!isListed(run("cmd deviceidle whitelist"), context.packageName)) { "恢复失败，请重试" }
+            checkUi(!isListed(run("cmd deviceidle whitelist"), context.packageName)) { UiText(R.string.xp_restore_failed) }
             check(prefs.edit().remove("added").commit())
         }
         check(prefs.edit().putBoolean("enabled", false).commit())
@@ -77,7 +79,7 @@ internal object RootKeepAlive {
     }
     fun summary(context: Context): String {
         val pm = context.getSystemService(PowerManager::class.java)
-        return "系统省电豁免：${if (pm.isIgnoringBatteryOptimizations(context.packageName)) "已启用" else "未启用"}"
+        return context.getString(R.string.xp_exempt_summary, context.getString(if (pm.isIgnoringBatteryOptimizations(context.packageName)) R.string.xp_exempt_on else R.string.xp_exempt_off))
     }
     @Synchronized fun record(context: Context, event: String) {
         runCatching {

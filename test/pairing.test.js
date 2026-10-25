@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { resourceStrings } from '../scripts/resource-strings.mjs';
 const messages = resourceStrings('values-zh-rCN');
 
-const source = ['text.js', 'desktop-input.js', 'flac-mp4.js', 'mse-music.js', 'media-probe.js', 'xpeng-diagnostics.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
+const source = ['text.js', 'browser-theme.js', 'desktop-input.js', 'flac-mp4.js', 'mse-music.js', 'media-probe.js', 'xpeng-diagnostics.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
   .map(name => readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8')
     .replace(/^import .*;$/gm, '').replace(/\bexport (?=(function|const|class)\b)/g, '')).join('\n');
 const flush = () => new Promise(resolve => setImmediate(resolve));

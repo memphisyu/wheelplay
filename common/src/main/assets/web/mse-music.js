@@ -1,3 +1,4 @@
+import { t } from './text.js';
 import {FLAC_MIME, FLAC_BLOCK, flacInit, flacFrame, flacFragment} from './flac-mp4.js';
 // A real media timeline, rather than a MediaStream, enables browser system media controls.
 export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError = () => {}, onPlaying = () => {}}) {
@@ -33,7 +34,7 @@ export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError
       blocked = false;
     } else if (error?.name === 'NotAllowedError') {
       blocked = true;
-      onError('请点按画面允许播放音乐', true);
+      onError(t('xp_web_music_allow'), true);
     } else {
       fail(error?.message || String(error));
     }
@@ -84,7 +85,7 @@ export function createMseMusic({rate, channels, mediaBufferMillis = 300, onError
         const count=Math.min(pcm.length-fill,data.length-offset); pcm.set(data.subarray(offset,offset+count),fill); fill+=count; offset+=count;
         if(fill===pcm.length) { pending.push(flacFragment(sequence++,samples,flacFrame(block++,rate,channels,pcm),FLAC_BLOCK)); samples+=FLAC_BLOCK; fill=0; }
       }
-      if(pending.length>24) { fail('音乐缓冲未推进，请点按画面或重新连接'); return; } pump();
+      if(pending.length>24) { fail(t('xp_web_music_buffer')); return; } pump();
     }, close,
   };
 }

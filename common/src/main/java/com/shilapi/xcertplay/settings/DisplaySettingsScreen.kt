@@ -25,14 +25,7 @@ import com.shilapi.xcertplay.web.StreamTechnology
 @Composable
 internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsActions) {
     var editMargins by rememberSaveable { mutableStateOf(false) }
-    SettingsChoice(
-        state,
-        actions,
-        ChoiceSetting.APPEARANCE,
-        R.string.settings_appearance,
-        CarPlayAppearance.entries.map { settingsString(it.labelRes) },
-    )
-    SettingsDescription(R.string.settings_appearance_description)
+    AppearanceSettings(state, actions)
     SettingsChoice(
         state,
         actions,

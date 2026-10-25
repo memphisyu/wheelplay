@@ -1,17 +1,18 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{locale}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#11161a">
-<title>Wheelplay 小鹏定制版 · 车机显示端</title>
+<title>{{web_wheelplay_head_unit_display}}</title>
 <link rel="stylesheet" href="/style.css">
+<script src="/i18n.js"></script>
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<header id="topbar"><a class="brand" href="/">Wheelplay 小鹏定制版</a><div id="status" role="status" aria-live="polite">等待连接</div><nav><button id="media-diagnostics" type="button">查看媒体诊断</button><button id="fullscreen" type="button">全屏</button><button id="disconnect" type="button" hidden>断开</button></nav></header>
-<pre id="media-diagnostics-output" hidden style="position:fixed;top:70px;left:5vw;width:90vw;max-height:70vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#111;color:#fff;padding:16px;z-index:100"></pre>
-<section id="media-test-panel" hidden style="position:fixed;top:70px;left:5vw;width:90vw;max-height:80vh;overflow:auto;background:#111;color:#fff;padding:16px;z-index:101">
+<header id="topbar"><a class="brand" href="/">Wheelplay 小鹏定制版</a><div id="status" role="status" aria-live="polite">{{ui_waiting_for_connection}}</div><nav><button id="media-diagnostics" type="button">查看媒体诊断</button><button id="fullscreen" type="button">{{web_full_screen}}</button><button id="disconnect" type="button" hidden>{{web_disconnect}}</button></nav></header>
+<pre id="media-diagnostics-output" hidden></pre>
+<section id="media-test-panel" hidden>
 <p>停车后进行音频检查。普通播放器播放短促提示音，期间暂停 CarPlay 浏览器音频和麦克风；结束后恢复。请先调低音量。</p>
 <button id="probe-start" type="button">开始播放器检查</button><button id="probe-stop" type="button">结束检查并恢复 CarPlay</button>
 <label><input id="probe-visible" type="checkbox" checked>显示普通播放器（可取消作对照）</label>
@@ -19,36 +20,43 @@
 <p id="media-test-mode" role="status">CarPlay 控制模式：以下按钮控制 iPhone。</p>
 <button data-media-action="previoustrack" type="button">上一首</button><button data-media-action="play" type="button">播放</button><button data-media-action="pause" type="button">暂停</button><button data-media-action="nexttrack" type="button">下一首</button>
 <button id="media-export" type="button">导出诊断 JSON</button><button id="media-panel-close" type="button">收起面板</button>
-<pre id="media-live-output" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+<pre id="media-live-output"></pre>
 </section>
 <main>
 <section id="pairing" aria-labelledby="title">
-<div class="eyebrow">局域网 · 车机显示端</div>
-<h1 id="title">连接 CarPlay 车机屏幕</h1>
-<p id="pair-instructions">首次连接时，在服务端 App 点击「扫描二维码配对」，<br class="wide">扫描下方二维码并允许连接。</p>
-<label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>连接后隐藏顶部栏</strong><small>让 CarPlay 画面占满整个页面；刷新页面可返回连接界面。</small></span></label>
-<label class="launch-option" for="fullscreen-on-start"><input id="fullscreen-on-start" type="checkbox"><span><strong>启动后隐藏顶栏并全屏</strong><small>点击启动时进入全屏，连接后隐藏顶栏；退出全屏可恢复顶栏。不支持全屏时仅隐藏顶栏，刷新页面可返回连接界面。</small></span></label>
-<label class="launch-option" for="canvas-video"><input id="canvas-video" type="checkbox"><span><strong>使用 Canvas 显示视频</strong><small>视频在屏幕外解码，再绘制到画布；适用于视频元素显示异常的浏览器。可能增加耗电，本浏览器会记住选择。</small></span></label>
-<details class="secure-setup" id="secure-setup"><summary>浏览器麦克风需要 HTTPS</summary><p>普通局域网 HTTP 页面无法申请麦克风权限。先在 Android 应用的「设置 → 权限与连接帮助 → 浏览器 HTTPS 证书」查看本设备的指纹，逐字核对下方 SHA-256 指纹，再下载证书并在车机浏览器信任。随后打开 HTTPS 页面。</p><code id="tls-fingerprint">正在读取…</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-certificate.crt">下载本地证书</a><a id="https-entry" href="#">打开 HTTPS 页面</a></div><p id="tls-error" role="status"></p></details>
-<div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">已恢复配对。选择上方选项后，点击「启动显示」。</p></div>
-<div class="qr-pairing" id="qr-pairing"><img id="pair-qr" width="240" height="240" alt="车机配对二维码" hidden><div><h2>扫码连接车机</h2><p id="qr-status" role="status" aria-live="polite">正在生成二维码…</p><button id="refresh-qr" type="button">刷新二维码</button></div></div>
-<form id="connect-form"><div id="code-entry"><p class="hint">也可以手动输入配对码</p><label for="code">设备上的六位配对码</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="输入配对码" required></div><button class="primary" id="connect" type="submit"><span id="connect-label">配对并启动显示</span> <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></form>
-<label class="launch-option" for="ignore-browser-zoom"><input id="ignore-browser-zoom" type="checkbox"><span><strong>忽略浏览器缩放</strong><small>尝试抵消浏览器放大，保持显示与触控坐标一致；默认关闭。</small></span></label>
+<div class="eyebrow">{{web_local_network_head_unit_display}}</div>
+<h1 id="title">{{web_connect_your_carplay_display}}</h1>
+<p id="pair-instructions">{{web_for_the_first_connection_tap_scan_qr_code_to}}<br class="wide">{{web_then_scan_the_qr_code_below_and_allow_the}}</p>
+<label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>{{web_hide_top_bar_after_connecting}}</strong><small>{{web_let_carplay_fill_the_page_refresh_to_return_to}}</small></span></label>
+<label class="launch-option" for="fullscreen-on-start"><input id="fullscreen-on-start" type="checkbox"><span><strong>{{web_hide_top_bar_enter_full_screen_on_start}}</strong><small>{{web_enter_full_screen_when_starting_and_hide_the_top}}</small></span></label>
+<fieldset class="renderer-options"><legend>{{web_video_renderer_title}}</legend><div class="renderer-cards">
+<label id="renderer-native-card" class="renderer-card" for="renderer-native"><input id="renderer-native" type="radio" name="video-renderer" value="native" checked><span><strong>{{web_video_renderer_native}}</strong><small>{{web_video_renderer_native_description}}</small></span></label>
+<label id="renderer-video-canvas-card" class="renderer-card" for="renderer-video-canvas"><input id="renderer-video-canvas" type="radio" name="video-renderer" value="video-canvas"><span><strong>{{web_video_renderer_compat}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_compat_description}}</small></span></label>
+<label id="renderer-track-canvas-card" class="renderer-card" for="renderer-track-canvas"><input id="renderer-track-canvas" type="radio" name="video-renderer" value="track-canvas"><span><strong>{{web_video_renderer_direct}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_direct_description}}</small></span></label>
+</div><p id="renderer-hint" class="renderer-hint" role="status" hidden>{{web_video_renderer_hint}}</p></fieldset>
+<label class="launch-option" for="ignore-browser-zoom"><input id="ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
+<label class="launch-option" for="browser-location"><input id="browser-location" type="checkbox" autocomplete="off" aria-describedby="location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
+<p id="location-status" class="hint" role="status" aria-live="polite"></p>
+<details class="secure-setup" id="secure-setup"><summary>{{web_browser_microphone_requires_https}}</summary><p>{{web_local_http_pages_cannot_request_microphone_permission_in_the}}</p><code id="tls-fingerprint">{{web_loading}}</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-certificate.crt">{{web_download_local_certificate}}</a><a id="https-entry" href="#">{{web_open_https_page}}</a></div><p id="tls-error" role="status"></p></details>
+<div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">{{web_pairing_restored_choose_the_options_above_then_tap_start}}</p></div>
+<div class="qr-pairing" id="qr-pairing"><img id="pair-qr" width="240" height="240" alt="{{web_head_unit_pairing_qr_code}}" hidden><div><h2>{{web_scan_to_connect_the_head_unit}}</h2><p id="qr-status" role="status" aria-live="polite">{{web_generating_qr_code}}</p><button id="refresh-qr" type="button">{{web_refresh_qr_code}}</button></div></div>
+<form id="connect-form"><div id="code-entry"><p class="hint">{{web_you_can_also_enter_the_pairing_code}}</p><label for="code">{{web_six_digit_pairing_code_on_the_device}}</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="{{web_enter_pairing_code}}" required></div><button class="primary" id="connect" type="submit"><span id="connect-label">{{web_pair_start_display}}</span> <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></form>
 <p id="message" role="alert"></p>
-<footer>设备与车机需连接同一 Wi-Fi 或热点。配对后会记住当前浏览器，可在 App「设置 → 浏览器设备」中管理。<br>音频和麦克风默认使用 Android；可在 App 的「设置 → 画面与音频」分别启用浏览器转发。</footer>
+<footer>{{web_connect_the_device_and_head_unit_to_the_same}}<br>{{web_audio_and_microphone_use_android_by_default_enable_browser}}</footer>
 </section>
-<section id="display" hidden aria-label="CarPlay 画面">
-<img id="screen" alt="CarPlay 实时画面" draggable="false" hidden>
-<img id="screen-next" alt="CarPlay 实时画面" draggable="false" hidden>
-<canvas id="held-frame" width="0" height="0" aria-label="CarPlay 实时画面" hidden></canvas>
+<section id="display" hidden aria-label="{{web_carplay_display}}">
+<img id="screen" alt="{{web_live_carplay_display}}" draggable="false" hidden>
+<img id="screen-next" alt="{{web_live_carplay_display}}" draggable="false" hidden>
+<img id="screen-third" alt="{{web_live_carplay_display}}" draggable="false" hidden>
+<canvas id="held-frame" width="0" height="0" aria-label="{{web_live_carplay_display}}" hidden></canvas>
 <div id="media-message" role="status" aria-live="polite" hidden></div>
-<video id="video" aria-label="CarPlay 实时视频" autoplay muted playsinline disablepictureinpicture hidden></video>
-<canvas id="video-canvas" width="0" height="0" aria-label="CarPlay 实时视频画布" hidden></canvas>
+<canvas id="video-canvas" width="0" height="0" aria-label="{{web_live_carplay_video_canvas}}" hidden></canvas>
 <div id="touch-surface" aria-hidden="true"></div>
+<div id="location-message" hidden role="status" aria-live="polite"></div>
 <div id="audio-message" hidden role="status" aria-live="polite"></div>
-<div id="waiting" role="status"><strong>车机已连接</strong><p id="stage">等待 iPhone 画面…</p><button id="phone-connect" class="primary" type="button">连接 iPhone</button><p id="phone-connect-message" class="hint" aria-live="polite">使用 Android 当前的 USB / 无线连接设置；首次连接请在 Android 上完成授权，并在 iPhone 上允许 CarPlay。</p></div>
+<div id="waiting" role="status"><strong>{{web_head_unit_connected}}</strong><p id="stage">{{web_waiting_for_iphone_video}}</p><button id="phone-connect" class="primary" type="button">{{ui_connect_iphone}}</button><p id="phone-connect-message" class="hint" aria-live="polite">{{web_uses_android_s_current_usb_wireless_connection_settings_for}}</p></div>
 </section>
 </main>
-<noscript>请在浏览器设置中启用 JavaScript 后重新加载。</noscript>
+<noscript>{{web_enable_javascript_in_your_browser_settings_then_reload}}</noscript>
 </body>
 </html>

@@ -1,0 +1,57 @@
+---
+import type { MarkdownLayoutProps } from "astro";
+import BaseLayout from "./BaseLayout.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import "../styles/docs.css";
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
+
+type Props = MarkdownLayoutProps<{
+  title: string;
+  description: string;
+}>;
+
+const { frontmatter, headings } = Astro.props;
+const sections = headings.filter(({ depth }) => depth === 2);
+const pages = [
+  { href: local("/docs/"), label: t("使用指南") },
+  { href: local("/docs/sources/"), label: t("输入源与兼容性") },
+  { href: local("/docs/tesla/"), label: t("Tesla 兼容模式（实验）") },
+  { href: local("/docs/faq/"), label: t("常见问题") },
+];
+const currentPath = Astro.url.pathname.replace(/\/$/, "");
+---
+
+<BaseLayout
+  title={`${frontmatter.title} · WheelPlay`}
+  description={frontmatter.description}
+  socialDescription={frontmatter.description}
+>
+  <a class="skip-link" href="#main">{t("跳到主要内容")}</a>
+  <SiteHeader />
+  <div class="container docs-layout">
+    <aside class="docs-sidebar">
+      <nav aria-label={t("文档导航")}>
+        <p class="eyebrow">WHEELPLAY DOCS</p>
+        {pages.map(({ href, label }) => (
+          <a href={href} aria-current={currentPath === href.replace(/\/$/, "") ? "page" : undefined}>{label}</a>
+        ))}
+      </nav>
+      {sections.length > 0 && (
+        <nav class="docs-toc" aria-label={t("本页目录")}>
+          <p>{t("本页目录")}</p>
+          {sections.map(({ slug, text }) => <a href={`#${slug}`}>{text}</a>)}
+        </nav>
+      )}
+    </aside>
+    <main id="main" class="docs-main">
+      <header class="docs-heading">
+        <h1>{frontmatter.title}</h1>
+        <p>{frontmatter.description}</p>
+      </header>
+      <article class="docs-content"><slot /></article>
+    </main>
+  </div>
+  <SiteFooter />
+</BaseLayout>

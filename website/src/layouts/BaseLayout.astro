@@ -1,0 +1,52 @@
+---
+import "../styles/global.css";
+import { localeFromPath, localizePath } from "../i18n";
+
+const locale = localeFromPath(Astro.url.pathname);
+
+interface Props {
+  title?: string;
+  description?: string;
+  socialDescription?: string;
+  noIndex?: boolean;
+  bodyClass?: string;
+}
+const {
+  title = locale === "en" ? "WheelPlay · CarPlay, Android Auto & VNC" : "WheelPlay · 在车机浏览器连接 CarPlay、Android Auto 与 VNC",
+  description = locale === "en" ? "WheelPlay connects CarPlay, experimental Android Auto and VNC desktops to your car browser through an Android host on your local network. Explore supported sources and setup guides." : "WheelPlay 通过 Android 宿主，将 CarPlay、实验性 Android Auto 与 VNC 远程桌面带到车机浏览器。了解各输入源的支持范围、连接方式与使用限制。",
+  socialDescription = description,
+  noIndex = false,
+  bodyClass,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#f8fafc" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content={locale === "en" ? "en_US" : "zh_CN"} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={socialDescription} />
+    {noIndex && <meta name="robots" content="noindex" />}
+    <title>{title}</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml" />
+    {!noIndex && <>
+      <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+      <link rel="alternate" hreflang="zh-CN" href={new URL(localizePath(Astro.url.pathname, "zh-CN"), Astro.site)} />
+      <link rel="alternate" hreflang="en" href={new URL(localizePath(Astro.url.pathname, "en"), Astro.site)} />
+      <link rel="alternate" hreflang="x-default" href={new URL(localizePath(Astro.url.pathname, "zh-CN"), Astro.site)} />
+    </>}
+    <script>
+      import "../scripts/language";
+    </script>
+  </head>
+  <body class={bodyClass}>
+    <slot />
+  </body>
+</html>

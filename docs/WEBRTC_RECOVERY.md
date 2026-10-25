@@ -18,7 +18,7 @@ WebRTC 视频直通省去 Android 解码、像素读取和 JPEG 压缩，但稳�
 
 ## 设置与边界
 
-「设置 → 画面与音频 → WebRTC 卡顿容忍时间」提供 **4 秒、10 秒（默认）、30 秒**。下次浏览器连接生效，策略随 `rtc-offer.recoveryGraceMs` 传到网页，浏览器与发送端使用同一策略。旧网页不支持该字段时，仍可能按旧逻辑提前回退，更新 App 后应刷新网页。
+「设置 → 画面与串流 → WebRTC 卡顿容忍时间」提供 **4 秒、10 秒（默认）、30 秒**。下次浏览器连接生效，策略随 `rtc-offer.recoveryGraceMs` 传到网页，浏览器与发送端使用同一策略。旧网页不支持该字段时，仍可能按旧逻辑提前回退，更新 App 后应刷新网页。
 
 已显示视频时，恢复期间保持最后一帧，状态栏显示「等待恢复」，控制与音频通道继续工作。容忍时间用于等待恢复，**不是视频缓冲长度**：压缩队列仍限制为 50 ms、6 帧、2 MiB；参考链失效后丢弃预测帧并请求关键帧，恢复后显示新画面，避免积压延迟。计数检测约每秒一次，实际回退时刻会受采样与调度影响。
 
@@ -58,6 +58,14 @@ WebSocket 控制连接的心跳与重连规则独立于视频策略；整个网�
 - `expiredFrames` / `overflowFrames` 持续上升：优先检查 Android CPU 调度、发送耗时和帧大小。容忍时间能等待关键帧恢复，但不会消除持续过载。
 - 发送速率正常，接收速率下降，`lost` / `nack` / RTT 升高：优先检查 Wi-Fi 信号、热点负载、UDP 限制。HTTP 能访问不代表 WebRTC 的 UDP 路径正常；项目没有外部 STUN / TURN。
 - 接收正常，解码速率停顿：检查浏览器编码兼容性，先禁用 iPhone HEVC，使用 H.264 对比。
-- 解码正常，呈现停顿：检查车机浏览器视频渲染，可对比网页的 Canvas 实验选项。
+- 解码正常，呈现停顿：检查车机浏览器视频渲染，可对比网页的「兼容 Canvas」与「直接 Canvas」实验选项。
 
 真机需分别验证 4 / 10 / 30 秒策略：播放动态画面，制造短于阈值的 UDP 丢包或短暂断开，确认保留 WebRTC 并恢复新画面；持续阻断超过阈值，确认回退 JPEG，并按退避间隔尝试新连接；解除阻断后确认 JPEG 持续显示和可操作，视频首帧到来后切回；静态画面停留一分钟后操作，确认没有立即回退；再检查触控、音频和浏览器自动重连。自动化测试覆盖策略、超时边界、重试与会话隔离，但不能证明某款 Tesla 浏览器或热点的实际兼容性。
+
+## 直接 Canvas 的恢复与回退
+
+直接 Canvas 缺少主线程 Processor 时不请求 WebRTC，保留图像串流（JPEG / WebP）；前端仍记录 `processor-unsupported` 并显示提示，不依赖服务端 fallback 字段。已收到 offer 后发现不可用时发送匹配 ID 的 rtc-fallback。Processor 构造、读取、绘制错误或轨道意外结束立即回退；回退保留控制和音频通道，释放触点、reader 及 Canvas 缓冲，不转用旧 Video 模式。
+
+首次成功绘制之前保持 JPEG，首帧等待 `max(10000ms, recoveryGraceMs)`。持续发送时分别检查解码和绘制进展，即使 framesDecoded 增长而画布不再更新，也会在所选容忍时间后回退。没有新输入的静态画面不触发渲染停滞；恢复输入时重新计时。连接短暂断开时仍保留最后一帧。
+
+`presentation.fallbackReason` 区分 processor-unsupported、renderer-error、track-ended、first-frame-timeout、decode-stalled、render-stalled、stats-unavailable、connection-failed、codec-unsupported 等原因；server-stop 表示服务端停止本次媒体。选择保留；可恢复错误沿用上游有界退避重试，缺少 Processor、Canvas 2D 或明确的平台不支持错误停止当前配置的重试，重新连接或配置变化后再尝试。直接 Canvas 状态栏使用 renderedFps，原生 Video 与兼容 Canvas 继续使用 presentedFps / decodedFps。

@@ -18,6 +18,7 @@ import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.isInternalAirPlayPeer
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
+import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
 import java.net.Inet6Address
@@ -36,12 +37,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 open class CarPlayVpnService : VpnService() {
     inner class LocalBinder : Binder() {
-        val service: CarPlayVpnService get() = this@CarPlayVpnService
+        val service: CarPlayVpnService
+            get() = this@CarPlayVpnService
     }
 
     sealed class AttachResult {
         data object Started : AttachResult()
+
         data object AlreadyStarted : AttachResult()
+
         data class Failed(val message: String) : AttachResult()
     }
 
@@ -72,18 +76,23 @@ open class CarPlayVpnService : VpnService() {
     private var teslaPlaceholder: ParcelFileDescriptor? = null
     private var teslaFailure: String? = null
     private var destroying = false
-    @Volatile var teslaVpnStatus = TeslaHttpStatus(mode = TeslaHttpMode.VPN)
+    @Volatile
+    var teslaVpnStatus = TeslaHttpStatus(mode = TeslaHttpMode.VPN)
         private set
 
     /** No packet reader is attached to these IPv4 TUNs. Only the NCM TUN exchanges packets. */
-    protected open fun establishTeslaTunnel(address: String): ParcelFileDescriptor = Builder()
-        .setSession("WheelPlay Tesla (experimental)")
-        .allowFamily(OsConstants.AF_INET)
-        .allowFamily(OsConstants.AF_INET6)
-        .allowBypass()
-        .addAddress(address, 32)
-        .addRoute(address, 32)
-        .establish() ?: throw IOException("Tesla VPN 未获授权，请在设置中授权后重试")
+    protected open fun establishTeslaTunnel(address: String): ParcelFileDescriptor =
+        Builder()
+            .setSession(getString(UiR.string.ui_wheelplay_tesla_experimental))
+            .allowFamily(OsConstants.AF_INET)
+            .allowFamily(OsConstants.AF_INET6)
+            .allowBypass()
+            .addAddress(address, 32)
+            .addRoute(address, 32)
+            .establish()
+            ?: throw IOException(
+                getString(UiR.string.ui_tesla_vpn_permission_is_missing_authorize_it_in_settings)
+            )
 
     protected open fun duplicateTeslaTunnel(fd: ParcelFileDescriptor): ParcelFileDescriptor =
         fd.dup()
@@ -97,8 +106,11 @@ open class CarPlayVpnService : VpnService() {
     /** Called by the independent Web owner, including while no iPhone is attached. */
     @Synchronized
     fun setTeslaAddress(address: String?, retry: Boolean = false): TeslaHttpStatus {
-        require(address == null || TeslaHttpConfig.isHttpAddress(address) &&
-            address != TeslaHttpConfig.VPN_PLACEHOLDER_ADDRESS)
+        require(
+            address == null ||
+                TeslaHttpConfig.isHttpAddress(address) &&
+                    address != TeslaHttpConfig.VPN_PLACEHOLDER_ADDRESS
+        )
         if (address != teslaAddress || retry) teslaFailure = null
         teslaAddress = address
         reconcileTeslaLocked()
@@ -118,7 +130,15 @@ open class CarPlayVpnService : VpnService() {
             // ownership back from another app. establish() itself fails if no longer prepared.
             if (installedTeslaAddress != address) {
                 if (tun != null) {
-                    teslaVpnStatus = TeslaHttpStatus(error = "请先断开有线 CarPlay，再应用免 Root 模式或新访问 IP", mode = TeslaHttpMode.VPN)
+                    teslaVpnStatus =
+                        TeslaHttpStatus(
+                            error =
+                                getString(
+                                    UiR.string
+                                        .ui_disconnect_wired_carplay_before_applying_rootless_mode_or_a
+                                ),
+                            mode = TeslaHttpMode.VPN,
+                        )
                     return
                 }
                 closeTeslaLocked()
@@ -129,10 +149,14 @@ open class CarPlayVpnService : VpnService() {
             if (tun == null && teslaPlaceholder == null) {
                 teslaPlaceholder = establishTeslaTunnel(TeslaHttpConfig.VPN_PLACEHOLDER_ADDRESS)
             }
-            if (!isTeslaAddressPresent(address)) throw IOException("系统未保留访问 IP；此设备可能不支持免 Root 模式，请关闭或手动重试")
+            if (!isTeslaAddressPresent(address))
+                throw IOException(
+                    getString(UiR.string.ui_the_system_did_not_retain_the_access_ip_this)
+                )
             teslaVpnStatus = TeslaHttpStatus(address = address, mode = TeslaHttpMode.VPN)
         } catch (error: Exception) {
-            teslaFailure = error.message ?: "免 Root VPN 配置失败"
+            teslaFailure =
+                error.message ?: getString(UiR.string.ui_rootless_vpn_configuration_failed)
             closeTeslaLocked()
             teslaVpnStatus = TeslaHttpStatus(error = teslaFailure, mode = TeslaHttpMode.VPN)
         }
@@ -158,18 +182,21 @@ open class CarPlayVpnService : VpnService() {
         teslaPlaceholder = null
         return wired
     }
+
     /** Only the original wired CarPlay IPv6 link uses Android's VPN API. */
-    protected open fun establishTunnel(linkLocal: String): ParcelFileDescriptor = Builder()
-        .allowFamily(OsConstants.AF_INET)
-        .allowFamily(OsConstants.AF_INET6)
-        .setSession(SESSION_NAME)
-        .setMtu(TUN_MTU)
-        .setBlocking(true)
-        .addAddress(linkLocal, LINK_PREFIX)
-        .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-        // DiPlay #168: reject failed scoping instead of establishing a tunnel for every UID.
-        .addAllowedApplication(packageName)
-        .establish() ?: throw IOException("CarPlay VPN 未获授权")
+    protected open fun establishTunnel(linkLocal: String): ParcelFileDescriptor =
+        Builder()
+            .allowFamily(OsConstants.AF_INET)
+            .allowFamily(OsConstants.AF_INET6)
+            .setSession(SESSION_NAME)
+            .setMtu(TUN_MTU)
+            .setBlocking(true)
+            .addAddress(linkLocal, LINK_PREFIX)
+            .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+            // DiPlay #168: reject failed scoping instead of establishing a tunnel for every UID.
+            .addAllowedApplication(packageName)
+            .establish()
+            ?: throw IOException(getString(UiR.string.ui_carplay_vpn_permission_is_missing))
 
     override fun onBind(intent: Intent?): IBinder? =
         if (intent?.action == SERVICE_INTERFACE) super.onBind(intent) else binder
@@ -198,9 +225,10 @@ open class CarPlayVpnService : VpnService() {
 
             val tunFd = activateWiredTunnel(linkLocal)
 
-            val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
-                onTransportError(generation, listener, error)
-            }
+            val ipv6Bridge =
+                Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
+                    onTransportError(generation, listener, error)
+                }
             ipv6Bridge.start()
             bridge = ipv6Bridge
 
@@ -239,7 +267,16 @@ open class CarPlayVpnService : VpnService() {
         return try {
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media, listenerIdentity),
+                AirPlayAttachment(
+                    bindAddress,
+                    config,
+                    identity,
+                    pairings,
+                    mfi,
+                    listener,
+                    media,
+                    listenerIdentity,
+                ),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -248,7 +285,9 @@ open class CarPlayVpnService : VpnService() {
         }
     }
 
-    /** Releases the active AirPlay listener and whichever VPN/NCM transport resources are active. */
+    /**
+     * Releases the active AirPlay listener and whichever VPN/NCM transport resources are active.
+     */
     @Synchronized
     fun detach() {
         releaseLocked()
@@ -258,7 +297,8 @@ open class CarPlayVpnService : VpnService() {
 
     @Synchronized
     override fun onRevoke() {
-        teslaFailure = "VPN 授权已撤销，请在设置中重新授权并重试"
+        teslaFailure =
+            getString(UiR.string.ui_vpn_permission_revoked_authorize_it_in_settings_and_try)
         val listener = if (bridge != null) attachment?.listener else null
         // Wireless AirPlay does not depend on the wired VPN.
         if (bridge != null) releaseLocked() else closeTunnelLocked()
@@ -275,27 +315,18 @@ open class CarPlayVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun startAirPlayServer(
-        generation: Int,
-        replacement: AirPlayAttachment,
-    ) {
+    private fun startAirPlayServer(generation: Int, replacement: AirPlayAttachment) {
         val server = ServerSocket()
         server.bind(InetSocketAddress(replacement.address, replacement.config.port))
         attachment = replacement
         serverSocket = server
-        Thread(
-            { acceptLoop(generation, server) },
-            "airplay-accept",
-        ).apply {
+        Thread({ acceptLoop(generation, server) }, "airplay-accept").apply {
             isDaemon = true
             start()
         }
     }
 
-    private fun acceptLoop(
-        generation: Int,
-        server: ServerSocket,
-    ) {
+    private fun acceptLoop(generation: Int, server: ServerSocket) {
         try {
             while (active.get()) {
                 val socket: Socket = server.accept()
@@ -303,38 +334,47 @@ open class CarPlayVpnService : VpnService() {
                 socket.tcpNoDelay = true
                 socket.keepAlive = true
                 socket.setSoLinger(true, 0)
-                val session = synchronized(this) {
-                    if (!active.get() || generation != attachGeneration || serverSocket !== server) {
-                        socket.close()
-                        return
+                val session =
+                    synchronized(this) {
+                        if (
+                            !active.get() ||
+                                generation != attachGeneration ||
+                                serverSocket !== server
+                        ) {
+                            socket.close()
+                            return
+                        }
+                        val current = attachment
+                        if (current == null) {
+                            socket.close()
+                            return
+                        }
+                        current.listenerIdentity?.let { owner ->
+                            current.listener.onTcpAccepted(
+                                AirPlayTcpAccepted(
+                                    owner,
+                                    isInternalAirPlayPeer(socket.inetAddress, current.address),
+                                    System.nanoTime(),
+                                )
+                            )
+                        }
+                        AirPlaySession(
+                                socket = socket,
+                                config = current.config,
+                                identity = current.identity,
+                                pairings = current.pairings,
+                                mfi = current.mfi,
+                                listener =
+                                    object : AirPlaySessionListener by current.listener {
+                                        override fun onSessionEnded(session: AirPlaySession) {
+                                            removeSession(session)
+                                            current.listener.onSessionEnded(session)
+                                        }
+                                    },
+                                media = current.media,
+                            )
+                            .also(::addSession)
                     }
-                    val current = attachment
-                    if (current == null) {
-                        socket.close()
-                        return
-                    }
-                    current.listenerIdentity?.let { owner ->
-                        current.listener.onTcpAccepted(AirPlayTcpAccepted(
-                            owner,
-                            isInternalAirPlayPeer(socket.inetAddress, current.address),
-                            System.nanoTime(),
-                        ))
-                    }
-                    AirPlaySession(
-                        socket = socket,
-                        config = current.config,
-                        identity = current.identity,
-                        pairings = current.pairings,
-                        mfi = current.mfi,
-                        listener = object : AirPlaySessionListener by current.listener {
-                            override fun onSessionEnded(session: AirPlaySession) {
-                                removeSession(session)
-                                current.listener.onSessionEnded(session)
-                            }
-                        },
-                        media = current.media,
-                    ).also(::addSession)
-                }
                 session.start()
             }
         } catch (error: IOException) {
@@ -374,21 +414,24 @@ open class CarPlayVpnService : VpnService() {
         val message = error.message ?: error.javaClass.simpleName
         Log.e(TAG, "CarPlay transport stopped: $message", error)
         Thread(
-            {
-                synchronized(this) {
-                    if (generation != attachGeneration) return@Thread
-                    releaseLocked()
-                }
-                listener.onTransportError(message)
-            },
-            "airplay-teardown",
-        ).apply {
-            isDaemon = true
-            start()
-        }
+                {
+                    synchronized(this) {
+                        if (generation != attachGeneration) return@Thread
+                        releaseLocked()
+                    }
+                    listener.onTransportError(message)
+                },
+                "airplay-teardown",
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
     }
 
-    /** Caller must hold this service's monitor. Closes only resources active for this attachment. */
+    /**
+     * Caller must hold this service's monitor. Closes only resources active for this attachment.
+     */
     private fun releaseLocked() {
         attachGeneration += 1
         active.set(false)

@@ -39,7 +39,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(qualifiers = "zh-rCN", sdk = [29])
 class LanTlsTest {
     @Before fun startWithoutRootAuthorization() {
         val identity = SyntheticMfiIdentity.create()

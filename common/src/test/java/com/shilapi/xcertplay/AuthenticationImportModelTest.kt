@@ -5,8 +5,14 @@ import android.net.Uri
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
+import androidx.compose.ui.test.*
 import androidx.lifecycle.ViewModelProvider
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -16,23 +22,23 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
-class AuthenticationImportModelTest {
-    private val app get() = RuntimeEnvironment.getApplication()
-    private val store get() = MfiAssetStore(app.noBackupFilesDir)
+@Config(sdk = [29], qualifiers = "zh-rCN-mdpi")
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+class AuthenticationImportModelTest : ComposeSettingsTest() {
+    private val app
+        get() = RuntimeEnvironment.getApplication()
+
+    private val store
+        get() = MfiAssetStore(app.noBackupFilesDir)
+
     private val keyUri = Uri.parse("content://documents/key")
     private val certificateUri = Uri.parse("content://documents/certificate")
     private val apkUri = Uri.parse("content://documents/DiPlay.apk")
 
-    @After fun cleanup() {
+    @After
+    fun cleanup() {
         com.shilapi.xcertplay.web.WebSession.stop()
         CarPlayBackgroundSession.clear()
         assertFalse(DiPlayBootstrap.importing)
@@ -48,19 +54,33 @@ class AuthenticationImportModelTest {
         fail("Import did not complete")
     }
 
-    private fun apk(identity: SyntheticMfiIdentity.Identity): ByteArray = ByteArrayOutputStream().apply {
-        ZipOutputStream(this).use { zip ->
-            for ((name, bytes) in mapOf("identity.pk8" to identity.key, "certificate.p7b" to identity.certificate)) {
-                zip.putNextEntry(ZipEntry("assets/offline-mfi/$name")); zip.write(bytes); zip.closeEntry()
+    private fun apk(identity: SyntheticMfiIdentity.Identity): ByteArray =
+        ByteArrayOutputStream()
+            .apply {
+                ZipOutputStream(this).use { zip ->
+                    for ((name, bytes) in
+                        mapOf(
+                            "identity.pk8" to identity.key,
+                            "certificate.p7b" to identity.certificate,
+                        )) {
+                        zip.putNextEntry(ZipEntry("assets/offline-mfi/$name"))
+                        zip.write(bytes)
+                        zip.closeEntry()
+                    }
+                }
             }
-        }
-    }.toByteArray()
+            .toByteArray()
 
-    @Test fun manualImportEnablesBootstrapWithoutBundledAssets() {
+    @Test
+    fun manualImportEnablesBootstrapWithoutBundledAssets() {
         assertThrows(Exception::class.java) { DiPlayBootstrap.ensure(app) }
         val identity = SyntheticMfiIdentity.create()
-        shadowOf(app.contentResolver).registerInputStreamSupplier(keyUri) { identity.key.inputStream() }
-        shadowOf(app.contentResolver).registerInputStreamSupplier(certificateUri) { identity.certificate.inputStream() }
+        shadowOf(app.contentResolver).registerInputStreamSupplier(keyUri) {
+            identity.key.inputStream()
+        }
+        shadowOf(app.contentResolver).registerInputStreamSupplier(certificateUri) {
+            identity.certificate.inputStream()
+        }
         val model = AuthenticationImportModel(app)
         model.import(key = keyUri, certificate = certificateUri)
         waitForCompletion(model)
@@ -69,10 +89,13 @@ class AuthenticationImportModelTest {
         assertArrayEquals(identity.certificate, store.load().readCertificate())
     }
 
-    @Test fun failedImportLeavesReadyConfigurationAvailable() {
+    @Test
+    fun failedImportLeavesReadyConfigurationAvailable() {
         val current = SyntheticMfiIdentity.create()
         store.installFiles({ current.key.inputStream() }, { current.certificate.inputStream() })
-        shadowOf(app.contentResolver).registerInputStreamSupplier(apkUri) { "invalid APK".byteInputStream() }
+        shadowOf(app.contentResolver).registerInputStreamSupplier(apkUri) {
+            "invalid APK".byteInputStream()
+        }
         val model = AuthenticationImportModel(app)
         model.import(apk = apkUri)
         waitForCompletion(model)
@@ -81,7 +104,8 @@ class AuthenticationImportModelTest {
         assertArrayEquals(current.certificate, store.load().readCertificate())
     }
 
-    @Test fun retainedImportCompletesAfterSettingsActivityRecreation() {
+    @Test
+    fun retainedImportCompletesAfterSettingsActivityRecreation() {
         val identity = SyntheticMfiIdentity.create()
         val bytes = apk(identity)
         val entered = CountDownLatch(1)
@@ -103,17 +127,21 @@ class AuthenticationImportModelTest {
             assertTrue(entered.await(2, TimeUnit.SECONDS))
             assertThrows(Exception::class.java) { DiPlayBootstrap.ensure(app) }
             controller.recreate()
-            assertSame(model, ViewModelProvider(controller.get())[AuthenticationImportModel::class.java])
+            assertSame(
+                model,
+                ViewModelProvider(controller.get())[AuthenticationImportModel::class.java],
+            )
         } finally {
             release.countDown()
             waitForCompletion(model)
         }
-        fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
-            (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
+        fun views(view: View): List<View> =
+            listOf(view) +
+                if (view is ViewGroup)
+                    (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
+                else emptyList()
         DiPlayBootstrap.ensure(controller.get())
-        assertTrue(views(controller.get().window.decorView).filterIsInstance<TextView>().any {
-            it.text.toString().startsWith("资源已就绪")
-        })
+        compose.onNodeWithText("资源已就绪 · 私钥与证书校验通过").assertExists()
         assertNotNull(shadowOf(controller.get()).nextStartedService)
         assertArrayEquals(identity.certificate, store.load().readCertificate())
         val service = Robolectric.buildService(DiPlaySessionService::class.java).create()
@@ -123,14 +151,18 @@ class AuthenticationImportModelTest {
         controller.pause().stop().destroy()
     }
 
-    @Test fun externalApkShareShowsSettingsAndWaitsForImportButton() {
-        val controller = Robolectric.buildActivity(DiPlayActivity::class.java,
-            Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, apkUri)).setup()
-        val dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
-        assertTrue(dialog.isShowing)
+    @Test
+    fun externalApkShareShowsSettingsAndWaitsForImportButton() {
+        val controller =
+            Robolectric.buildActivity(
+                    DiPlayActivity::class.java,
+                    Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, apkUri),
+                )
+                .setup()
+        compose.onNodeWithText("从此 APK 导入认证资源？").assertExists()
         assertFalse(DiPlayBootstrap.importing)
         assertFalse(store.exists())
-        dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).performClick()
+        clickText("取消")
         assertFalse(DiPlayBootstrap.importing)
         assertFalse(store.exists())
         controller.pause().stop().destroy()

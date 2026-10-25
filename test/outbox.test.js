@@ -22,6 +22,19 @@ function fixture() {
 }
 const touch = (x, down = true) => ({ type: 'touch', contacts: [{ id: 0, x, y: 0.5, down }] });
 
+test('GPS coalesces under backpressure and disabling clears queued coordinates', () => {
+  const f = fixture();
+  f.outbox.send({ type: 'location-start' });
+  for (let i = 0; i < 100; i++) f.outbox.send({ type: 'location', latitude: i });
+  f.socket.bufferedAmount = 0; f.advance(10);
+  assert.deepEqual(f.sent, [{ type: 'location-start' }, { type: 'location', latitude: 99 }]);
+  f.socket.bufferedAmount = 8192;
+  f.outbox.send({ type: 'location', latitude: 50 });
+  f.outbox.send({ type: 'location-stop' });
+  f.socket.bufferedAmount = 0; f.advance(20);
+  assert.deepEqual(f.sent.at(-1), { type: 'location-stop' }); assert.equal(f.sent.length, 3);
+});
+
 test('congested ACK is sent once after recovery, ahead of touches and heartbeat', () => {
   const f = fixture();
   f.outbox.send({ type: 'ping' });
@@ -87,19 +100,17 @@ test('flush stops when actual WebSocket buffering crosses the watermark', () => 
   assert.equal(f.timers.size, 0);
 });
 
-test('media actions remain ordered under congestion and are discarded on disconnect', () => {
-  const f=fixture();
-  f.outbox.send({type:'media-command',command:'NEXT',generation:7});
-  f.outbox.send({type:'media-command',command:'PREVIOUS',generation:7});
-  f.socket.bufferedAmount=0; f.advance(10);
-  assert.deepEqual(f.sent.map(x=>x.command),['NEXT','PREVIOUS']);
-  f.socket.bufferedAmount=8192; f.outbox.send({type:'media-command',command:'NEXT',generation:7});
-  f.outbox.close(); f.socket.bufferedAmount=0; f.advance(100);
-  assert.equal(f.sent.length,2);
-});
-test('paired artwork requests pass through the signaling outbox',()=>{
- const sent=[];const socket={readyState:1,bufferedAmount:0,send:s=>sent.push(JSON.parse(s))};
- const outbox=createControlOutbox(socket);
- assert.equal(outbox.send({type:'artwork-request',artworkKey:'1:2:3'}),true);
- assert.deepEqual(sent,[{type:'artwork-request',artworkKey:'1:2:3'}]);outbox.close();
+test('desktop and touch share ordering without coalescing across key or release boundaries', () => {
+  const f = fixture();
+  const pointer = x => ({ type: 'input', kind: 'pointer', x, y: 0.5, buttons: 1 });
+  f.outbox.send(pointer(0));
+  for (let i = 0; i < 100; i++) f.outbox.send(pointer(i), 'move');
+  const key = { type: 'input', kind: 'key', key: 'a', down: true };
+  f.outbox.send(key);
+  f.outbox.send(touch(0.2), 'move');
+  f.outbox.send(pointer(100), 'move');
+  const release = { type: 'input', kind: 'release' };
+  f.outbox.send(release);
+  f.socket.bufferedAmount = 0; f.advance(10);
+  assert.deepEqual(f.sent, [pointer(0), pointer(99), key, touch(0.2), pointer(100), release]);
 });

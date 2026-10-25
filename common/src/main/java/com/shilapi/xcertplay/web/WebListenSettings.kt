@@ -1,7 +1,9 @@
 package com.shilapi.xcertplay.web
 
 import android.content.Context
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.network.TeslaHttpConfig
+import com.shilapi.xcertplay.shared.R as UiR
 
 /** Ordinary listeners never request su; privileged ports belong to Tesla's mapping settings. */
 internal object WebListenSettings {
@@ -9,10 +11,17 @@ internal object WebListenSettings {
     const val DEFAULT_HTTPS_PORT = 8443
     const val DEFAULT_MDNS_HOSTNAME = "wheelplay.local"
     private val mdnsPattern = Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.local")
-    fun validMdnsHostname(value: String) = value.length <= 69 && mdnsPattern.matches(value)
-    enum class CertificateType(val label: String) { DEFAULT("默认本地证书"), PEM("PEM"), PKCS12("PKCS#12") }
 
-    @Synchronized internal fun migrate(context: Context) {
+    fun validMdnsHostname(value: String) = value.length <= 69 && mdnsPattern.matches(value)
+
+    enum class CertificateType(@param:androidx.annotation.StringRes val labelRes: Int) {
+        DEFAULT(UiR.string.ui_default_local_certificate),
+        PEM(UiR.string.host_pem),
+        PKCS12(UiR.string.host_pkcs_12),
+    }
+
+    @Synchronized
+    internal fun migrate(context: Context) {
         val prefs = context.getSharedPreferences("web_listen", Context.MODE_PRIVATE)
         if (prefs.getBoolean("migrated", false)) return
         val oldHttp = context.getSharedPreferences("tesla_http", Context.MODE_PRIVATE)
@@ -22,61 +31,122 @@ internal object WebListenSettings {
         var httpListener = http.takeIf { it in 1024..65535 } ?: DEFAULT_HTTP_PORT
         var httpsListener = https.takeIf { it in 1024..65535 } ?: DEFAULT_HTTPS_PORT
         if (httpListener == httpsListener) {
-            if (https !in 1024..65535) httpsListener = if (httpListener == DEFAULT_HTTPS_PORT) 8444 else DEFAULT_HTTPS_PORT
+            if (https !in 1024..65535)
+                httpsListener = if (httpListener == DEFAULT_HTTPS_PORT) 8444 else DEFAULT_HTTPS_PORT
             else httpListener = if (httpsListener == DEFAULT_HTTP_PORT) 8081 else DEFAULT_HTTP_PORT
         }
         val httpMapping = oldHttp.getInt("http_mapping_port", http.takeIf { it in 1..1023 } ?: 80)
         val httpsMapping = https.takeIf { it in 1..1023 } ?: if (httpMapping == 443) 444 else 443
-        val hostname = oldHttp.getString("hostname", "").orEmpty().takeIf(TeslaHttpConfig::isHostname).orEmpty()
+        val hostname =
+            oldHttp
+                .getString("hostname", "")
+                .orEmpty()
+                .takeIf(TeslaHttpConfig::isHostname)
+                .orEmpty()
         val mappings = oldHttp.edit()
-        if (!oldHttp.contains("http_mapping_port")) mappings.putInt("http_mapping_port", httpMapping)
-        if (!oldHttp.contains("https_mapping_port")) mappings.putInt("https_mapping_port", httpsMapping)
-        check(mappings.commit()) { "端口映射迁移失败" }
-        check(prefs.edit().putInt("http_port", httpListener)
-            .putInt("https_port", httpsListener)
-            .putString("hostname", hostname).putBoolean("https_enabled", true)
-            .putBoolean("migrated", true).commit()) { "Web 监听配置迁移失败" }
+        if (!oldHttp.contains("http_mapping_port"))
+            mappings.putInt("http_mapping_port", httpMapping)
+        if (!oldHttp.contains("https_mapping_port"))
+            mappings.putInt("https_mapping_port", httpsMapping)
+        check(mappings.commit()) {
+            context.getString(UiR.string.ui_port_forwarding_migration_failed)
+        }
+        check(
+            prefs
+                .edit()
+                .putInt("http_port", httpListener)
+                .putInt("https_port", httpsListener)
+                .putString("hostname", hostname)
+                .putBoolean("https_enabled", true)
+                .putBoolean("migrated", true)
+                .commit()
+        ) {
+            context.getString(UiR.string.ui_web_listener_migration_failed)
+        }
     }
 
     private fun preferences(context: Context): android.content.SharedPreferences {
         migrate(context)
         return context.getSharedPreferences("web_listen", Context.MODE_PRIVATE)
     }
-    fun httpPort(context: Context) = preferences(context).getInt("http_port", DEFAULT_HTTP_PORT)
-        .takeIf { it in 1024..65535 } ?: DEFAULT_HTTP_PORT
-    fun httpsPort(context: Context) = preferences(context).getInt("https_port", DEFAULT_HTTPS_PORT)
-        .takeIf { it in 1024..65535 } ?: DEFAULT_HTTPS_PORT
+
+    fun httpPort(context: Context) =
+        preferences(context).getInt("http_port", DEFAULT_HTTP_PORT).takeIf { it in 1024..65535 }
+            ?: DEFAULT_HTTP_PORT
+
+    fun httpsPort(context: Context) =
+        preferences(context).getInt("https_port", DEFAULT_HTTPS_PORT).takeIf { it in 1024..65535 }
+            ?: DEFAULT_HTTPS_PORT
+
     fun httpsEnabled(context: Context) = preferences(context).getBoolean("https_enabled", true)
-    fun hostname(context: Context) = preferences(context).getString("hostname", "").orEmpty()
-        .takeIf(TeslaHttpConfig::isHostname).orEmpty()
+
+    fun hostname(context: Context) =
+        preferences(context)
+            .getString("hostname", "")
+            .orEmpty()
+            .takeIf(TeslaHttpConfig::isHostname)
+            .orEmpty()
+
     fun mdnsEnabled(context: Context) = preferences(context).getBoolean("mdns_enabled", false)
     fun saveMdnsEnabled(context: Context, enabled: Boolean) {
-        check(preferences(context).edit().putBoolean("mdns_enabled", enabled).commit()) { "mDNS 开关保存失败" }
+        check(preferences(context).edit().putBoolean("mdns_enabled", enabled).commit())
     }
-    fun mdnsHostname(context: Context) = preferences(context).getString("mdns_hostname", DEFAULT_MDNS_HOSTNAME)
-        .orEmpty().takeIf(::validMdnsHostname) ?: DEFAULT_MDNS_HOSTNAME
+    fun mdnsHostname(context: Context) =
+        preferences(context)
+            .getString("mdns_hostname", DEFAULT_MDNS_HOSTNAME)
+            .orEmpty()
+            .takeIf(::validMdnsHostname) ?: DEFAULT_MDNS_HOSTNAME
+
     fun saveMdnsHostname(context: Context, value: String) {
-        require(validMdnsHostname(value)) { "请输入单级 .local 域名，例如 wheelplay.local" }
-        check(preferences(context).edit().putString("mdns_hostname", value).commit()) { "mDNS 域名保存失败" }
+        require(validMdnsHostname(value)) { context.getString(R.string.settings_mdns_invalid) }
+        check(preferences(context).edit().putString("mdns_hostname", value).commit()) {
+            context.getString(R.string.settings_mdns_save_failed)
+        }
     }
-    fun certificateType(context: Context) = runCatching {
-        CertificateType.valueOf(preferences(context).getString("certificate_type",
-            if (LanTls.hasCustom(context)) "PEM" else "DEFAULT")!!)
-    }.getOrDefault(CertificateType.DEFAULT)
+
+    fun certificateType(context: Context) =
+        runCatching {
+                CertificateType.valueOf(
+                    preferences(context)
+                        .getString(
+                            "certificate_type",
+                            if (LanTls.hasCustom(context)) "PEM" else "DEFAULT",
+                        )!!
+                )
+            }
+            .getOrDefault(CertificateType.DEFAULT)
+
     fun saveHttpPort(context: Context, port: Int) = savePort(context, "http_port", port)
+
     fun saveHttpsPort(context: Context, port: Int) = savePort(context, "https_port", port)
+
     private fun savePort(context: Context, key: String, port: Int) {
-        require(port in 1024..65535) { "Web 监听端口必须为 1024–65535；低位端口请在 Tesla 兼容中映射" }
-        check(preferences(context).edit().putInt(key, port).commit()) { "Web 端口保存失败" }
+        require(port in 1024..65535) {
+            context.getString(UiR.string.ui_web_listener_ports_must_be_between_1024_and_65535)
+        }
+        check(preferences(context).edit().putInt(key, port).commit()) {
+            context.getString(UiR.string.ui_could_not_save_web_port)
+        }
     }
+
     fun saveHttpsEnabled(context: Context, enabled: Boolean) {
-        check(preferences(context).edit().putBoolean("https_enabled", enabled).commit()) { "HTTPS 开关保存失败" }
+        check(preferences(context).edit().putBoolean("https_enabled", enabled).commit()) {
+            context.getString(UiR.string.ui_could_not_save_https_setting)
+        }
     }
+
     fun saveHostname(context: Context, hostname: String) {
-        require(TeslaHttpConfig.isHostname(hostname)) { "请输入域名，不要包含协议、端口或路径" }
-        check(preferences(context).edit().putString("hostname", hostname).commit()) { "Web 域名保存失败" }
+        require(TeslaHttpConfig.isHostname(hostname)) {
+            context.getString(UiR.string.ui_enter_a_hostname_without_a_scheme_port_or_path)
+        }
+        check(preferences(context).edit().putString("hostname", hostname).commit()) {
+            context.getString(UiR.string.ui_could_not_save_web_hostname)
+        }
     }
+
     fun saveCertificateType(context: Context, type: CertificateType) {
-        check(preferences(context).edit().putString("certificate_type", type.name).commit()) { "证书类型保存失败" }
+        check(preferences(context).edit().putString("certificate_type", type.name).commit()) {
+            context.getString(UiR.string.ui_could_not_save_certificate_type)
+        }
     }
 }

@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.shared.R as UiR
+
 import android.content.Context
 import android.graphics.Color
 import android.view.View
@@ -129,7 +131,7 @@ internal class ServerUi(private val context: Context) {
         fun setExpanded(value: Boolean, animate: Boolean = false) {
             val changed = expanded != value
             expanded = value
-            androidx.core.view.ViewCompat.setStateDescription(this, if (value) "已展开" else "已折叠")
+            androidx.core.view.ViewCompat.setStateDescription(this, if (value) context.getString(UiR.string.ui_expanded) else context.getString(UiR.string.ui_collapsed))
             if (!changed && animate) return
             arrow.animate().cancel()
             val angle = if (value) 270f else 90f
@@ -175,6 +177,35 @@ internal class ServerUi(private val context: Context) {
             addView(body, android.view.ViewGroup.LayoutParams(-1, -2))
         }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
     }
+
+    /** One accessible navigation target, with no nested settings or connection actions. */
+    fun sourceCard(parent: LinearLayout, title: String, summary: String, icon: Int, action: () -> Unit) {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            minimumHeight = dp(132)
+            setPadding(dp(cardPadding), dp(24), dp(cardPadding), dp(24))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        }
+        row.addView(android.widget.ImageView(context).apply { setImageResource(icon) },
+            LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(16) })
+        row.addView(column().apply {
+            addView(text(title, 22, TEXT, true))
+            addView(text(summary, 14, MUTED).apply { setPadding(0, dp(8), 0, 0) })
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(android.widget.ImageView(context).apply { setImageResource(R.drawable.ic_settings_chevron) },
+            LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(12) })
+        parent.addView(object : MaterialCardView(context) {
+            override fun getAccessibilityClassName(): CharSequence = android.widget.Button::class.java.name
+        }.apply {
+            radius = dp(24).toFloat(); cardElevation = 0f; strokeWidth = 0
+            setCardBackgroundColor(SURFACE)
+            contentDescription = "$title, $summary"
+            isFocusable = true
+            setOnClickListener { action() }
+            addView(row, android.view.ViewGroup.LayoutParams(-1, -2))
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+    }
     fun content(build: (LinearLayout) -> Unit): ScrollView {
         val gutter = pageGutter
         val body = column().apply { setPadding(dp(gutter), dp(24), dp(gutter), dp(32)) }
@@ -191,7 +222,8 @@ internal class ServerUi(private val context: Context) {
             addView(body, android.view.ViewGroup.LayoutParams(-1, -2))
         }
     }
-    inner class Shell(initialPage: String, private val onPageChanged: (String) -> Unit) {
+    inner class Shell(initialPage: String, private val onPageChanged: (String) -> Unit,
+        private val parentPages: Map<String, String> = emptyMap()) {
         val root = FrameLayout(context).apply { setBackgroundColor(BG) }
         private val layout = column()
         private var topInset = 0
@@ -223,6 +255,8 @@ internal class ServerUi(private val context: Context) {
         private val container = FrameLayout(context)
         private val pages = linkedMapOf<String, View>()
         private val ids = listOf("service", "phone", "settings")
+        private var syncingTabs = false
+        private fun tabId(page: String) = ids.indexOf(parentPages[page] ?: page).coerceAtLeast(0) + 1
         var selected = initialPage
             private set
         init {
@@ -235,7 +269,7 @@ internal class ServerUi(private val context: Context) {
                 updateStatusScrim()
             }
             val icons = listOf(R.drawable.ic_server_launch, R.drawable.ic_server_phone, R.drawable.ic_server_settings)
-            listOf("启动", "iPhone", "设置").forEachIndexed { index, title ->
+            listOf(context.getString(UiR.string.ui_start), context.getString(UiR.string.source_tab), context.getString(UiR.string.ui_settings)).forEachIndexed { index, title ->
                 tabs.menu.add(0, index + 1, index, title).setIcon(icons[index])
             }
             // CJK fallback metrics otherwise enlarge only Chinese labels, shifting their baseline.
@@ -251,15 +285,16 @@ internal class ServerUi(private val context: Context) {
                     }
                 }
             }
-            tabs.selectedItemId = ids.indexOf(initialPage).coerceAtLeast(0) + 1
+            tabs.selectedItemId = tabId(initialPage)
             layout.addView(container, LinearLayout.LayoutParams(-1, 0, 1f))
             layout.addView(navigationSurface, LinearLayout.LayoutParams(-1, -2))
-            tabs.setOnItemSelectedListener { item -> select(ids[item.itemId - 1]); true }
+            tabs.setOnItemSelectedListener { item -> if (!syncingTabs) select(ids[item.itemId - 1]); true }
+            tabs.setOnItemReselectedListener { item -> if (!syncingTabs) select(ids[item.itemId - 1]) }
 
         }
-        fun put(id: String, view: View) {
+        fun put(id: String, view: View, scrollPosition: Int? = null) {
             val old = pages.put(id, view)
-            val scrollY = old?.scrollY ?: 0
+            val scrollY = scrollPosition ?: old?.scrollY ?: 0
             if (old != null) container.removeView(old)
             container.addView(view, FrameLayout.LayoutParams(-1, -1))
             view.visibility = if (id == selected) View.VISIBLE else View.GONE
@@ -275,14 +310,22 @@ internal class ServerUi(private val context: Context) {
             view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
         }
         private fun updateStatusScrim() {
-            statusScrim.alpha = ((pages[selected]?.scrollY ?: 0).toFloat() / dp(24)).coerceIn(0f, 1f)
+            statusScrim.alpha = ((pageScroll[selected] ?: pages[selected]?.scrollY ?: 0).toFloat() / dp(24)).coerceIn(0f, 1f)
+        }
+        private val pageScroll = mutableMapOf<String, Int>()
+        fun setPageScroll(id: String, offset: Int) {
+            pageScroll[id] = offset
+            if (selected == id) updateStatusScrim()
         }
         fun select(id: String) {
-            if (id !in ids || selected == id) return
+            if ((id !in ids && id !in parentPages) || selected == id) return
             selected = id
             pages.forEach { (page, view) -> view.visibility = if (page == id) View.VISIBLE else View.GONE }
             // Only the stock Material indicator animates; no Activity or whole-window transition.
-            if (tabs.selectedItemId != ids.indexOf(id) + 1) tabs.selectedItemId = ids.indexOf(id) + 1
+            if (tabs.selectedItemId != tabId(id)) {
+                syncingTabs = true
+                try { tabs.selectedItemId = tabId(id) } finally { syncingTabs = false }
+            }
             updateStatusScrim()
             onPageChanged(id)
         }

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.web
 
+import com.shilapi.xcertplay.projection.*
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
@@ -18,8 +19,96 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.HttpsURLConnection
 
 @RunWith(org.robolectric.RobolectricTestRunner::class)
-@org.robolectric.annotation.Config(sdk = [29])
+@org.robolectric.annotation.Config(qualifiers = "zh-rCN", sdk = [29])
 class LanWebServerTest {
+    @Test fun pairedNowPlayingStreamsStateCommandsAndRevocableArtworkOverRealSockets() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 3)
+        val state = com.shilapi.xcertplay.media.NowPlayingState(connected = true, connectionGeneration = 7,
+            title = "Phone song", status = com.shilapi.xcertplay.media.PhonePlaybackStatus.PLAYING,
+            durationMs = 100000, positionMs = 1000, setElapsedTimeAvailable = true,
+            artwork = com.shilapi.xcertplay.media.MediaArtwork(bytes))
+        val subscribed = CountDownLatch(1)
+        val commands = java.util.concurrent.CopyOnWriteArrayList<com.shilapi.xcertplay.media.MediaCommand>()
+        val seeks = java.util.concurrent.CopyOnWriteArrayList<Triple<Long, Long?, Long?>>()
+        val source = object : com.shilapi.xcertplay.media.CarPlayMediaSource {
+            override fun mediaSnapshot() = state
+            override fun subscribeMediaState(listener: (com.shilapi.xcertplay.media.NowPlayingState) -> Unit): AutoCloseable {
+                listener(state); subscribed.countDown(); return AutoCloseable {}
+            }
+            override fun sendMediaCommand(command: com.shilapi.xcertplay.media.MediaCommand, connectionGeneration: Long?): java.util.concurrent.CompletableFuture<com.shilapi.xcertplay.media.MediaCommandResult> {
+                commands.add(command)
+                return java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.SENT)
+            }
+            override fun seekTo(positionMs: Long, connectionGeneration: Long?, trackRevision: Long?): java.util.concurrent.CompletableFuture<com.shilapi.xcertplay.media.MediaCommandResult> {
+                seeks.add(Triple(positionMs, connectionGeneration, trackRevision))
+                return java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.SENT)
+            }
+        }
+        val server = LanWebServer(context, "123456", port = 0, mediaBridgeFactory = { send ->
+            BrowserMediaBridge(send, currentSource = { source }, observeSource = { it(); AutoCloseable {} },
+                dispatch = { src, gen, cmd -> src.sendMediaCommand(cmd, gen) },
+                dispatchSeek = { src, gen, track, pos -> src.seekTo(pos, gen, track) })
+        })
+        server.start()
+        val port = server.listeningPort
+        val host = "127.0.0.1:$port"
+        val token = server.pairing.issueToken()!!
+        fun pumpUntil(condition: () -> Boolean) {
+            val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!condition() && System.nanoTime() < until) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20))
+                Thread.sleep(5)
+            }
+            assertTrue(condition())
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+        try {
+            val missing = URL("http://$host/now-playing/artwork?id=unknown").openConnection() as java.net.HttpURLConnection
+            assertEquals(404, missing.responseCode); missing.disconnect()
+            assertTrue(URL("http://$host/browser-media-session.js").readText().contains("setPositionState"))
+            handshake("", "http://$host", token, host, port, nowPlaying = true).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                pumpUntil { subscribed.count == 0L }
+                var snapshot: org.json.JSONObject
+                do { snapshot = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (snapshot.optString("type") != "now-playing" || !snapshot.optBoolean("available"))
+                assertEquals("Phone song", snapshot.getString("title"))
+                val coverUrl = URL("http://$host${snapshot.getString("artworkUrl")}")
+                val cover = coverUrl.openConnection() as java.net.HttpURLConnection
+                assertEquals("image/jpeg", cover.contentType)
+                assertEquals("private, no-store", cover.getHeaderField("Cache-Control"))
+                assertArrayEquals(bytes, cover.inputStream.use { it.readBytes() }); cover.disconnect()
+                text(client, org.json.JSONObject().put("type", "media-command").put("requestId", 1)
+                    .put("sessionId", snapshot.getString("sessionId")).put("connectionGeneration", 7)
+                    .put("action", "pause").toString())
+                pumpUntil { commands.isNotEmpty() }
+                var result: org.json.JSONObject
+                do { result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (result.optString("type") != "media-command-result")
+                assertEquals("sent", result.getString("result"))
+                assertEquals(listOf(com.shilapi.xcertplay.media.MediaCommand.PAUSE), commands)
+                assertTrue(snapshot.getBoolean("canSeek"))
+                text(client, org.json.JSONObject().put("type", "media-command").put("requestId", 2)
+                    .put("sessionId", snapshot.getString("sessionId")).put("connectionGeneration", 7)
+                    .put("trackRevision", snapshot.getLong("trackRevision"))
+                    .put("action", "seekto").put("positionMs", 42000).toString())
+                pumpUntil { seeks.isNotEmpty() }
+                do { result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (result.optString("type") != "media-command-result" || result.optLong("requestId") != 2L)
+                assertEquals("sent", result.getString("result"))
+                assertEquals(listOf(Triple(42000L, 7L, 0L)), seeks)
+                server.pairing.revoke(token)
+                val revoked = coverUrl.openConnection() as java.net.HttpURLConnection
+                assertEquals(404, revoked.responseCode); revoked.disconnect()
+                server.disconnectUnauthorized()
+            }
+        } finally {
+            server.stop()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+    }
+
     @org.junit.Before fun provisionAuthentication() {
         val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
         com.shilapi.xcertplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
@@ -80,9 +169,6 @@ class LanWebServerTest {
                 assertEquals(before.sessionId, status.getLong("sessionId"))
                 assertEquals(owner, status.getLong("videoEpoch"))
                 assertEquals("ready", status.getString("sourceState"))
-                assertEquals("now-playing", status.getJSONObject("media").getString("type"))
-                assertTrue(status.getJSONObject("media").has("artworkKey"))
-                assertTrue(status.getJSONObject("media").has("hasArtwork"))
                 assertFalse("No phone controller means input is not ready", status.getBoolean("inputReady"))
                 assertTrue(WebSession.mediaMatches(before.sessionId, owner))
                 val next = WebSession.beginVideo(320, 180)
@@ -107,6 +193,151 @@ class LanWebServerTest {
                 assertNotEquals(before.sessionId, WebSession.mediaSnapshot().sessionId)
                 WebSession.publish(owner, byteArrayOf(9))
                 assertNull("An old producer cannot republish into the new session", WebSession.frame)
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun staticFramebufferReencodesForJpegFallbackAndQualityChanges() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebListenSettings.saveHttpsEnabled(context, false)
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.WEBP)
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 75)
+        WebSession.start(context)
+        fun waitFor(message: String, condition: () -> Boolean) {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!condition() && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(message, condition())
+        }
+        try {
+            BrowserProjectionVideo(context, 16, 16, VideoIngressKind.FRAMEBUFFER).use { output ->
+                handshake(WebSession.code, media = 2, images = 3).use { client ->
+                    assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                    fun receiveAndAck(expected: WebSession.Frame) {
+                        var data = frame(client)
+                        while (data.firstOrNull() == '{'.code.toByte()) data = frame(client)
+                        assertArrayEquals(VideoPacket.encode(expected, 3), data)
+                        val bitmap = BitmapFactory.decodeByteArray(data, 40, data.size - 40)
+                        assertNotNull(bitmap); assertEquals(16, bitmap.width); bitmap.recycle()
+                        text(client, """{"type":"ack","sessionId":${expected.sessionId},"videoEpoch":${expected.videoEpoch},"sequence":${expected.sequence}}""")
+                    }
+                    text(client, """{"type":"image-format","format":"webp"}""")
+                    waitFor("Browser negotiated WebP") { WebSession.imageFormat == ImageFormat.WEBP }
+                    output.framebuffer(ProjectionFramebuffer.Snapshot(16, 16, 1, IntArray(256) { -1 }))
+                    waitFor("Initial WebP encoded") { WebSession.frame?.format == ImageFormat.WEBP }
+                    val first = WebSession.frame!!
+                    receiveAndAck(first)
+
+                    // No further source snapshots: VNC may leave an incremental request pending indefinitely.
+                    text(client, """{"type":"image-format","format":"jpeg"}""")
+                    waitFor("Static desktop re-encoded as JPEG") { WebSession.frame?.format == ImageFormat.JPEG }
+                    val fallback = WebSession.frame!!
+                    assertTrue(fallback.sequence > first.sequence)
+                    assertEquals(first.videoEpoch, fallback.videoEpoch)
+                    receiveAndAck(fallback)
+
+                    com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 60)
+                    waitFor("Static desktop picks up changed quality") { WebSession.frame?.quality == 60 }
+                    val quality = WebSession.frame!!
+                    assertEquals(ImageFormat.JPEG, quality.format)
+                    assertTrue(quality.sequence > fallback.sequence)
+                    receiveAndAck(quality)
+                    Thread.sleep(300) // Several image scheduler ticks with unchanged options.
+                    assertEquals("Static frames must not be re-encoded continuously", quality.sequence, WebSession.frame!!.sequence)
+                }
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun v3NegotiatesWebpPipelinesFramesAndRequiresExactAcksBeforeFallingBackToJpeg() {
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(org.robolectric.RuntimeEnvironment.getApplication(), ImageFormat.WEBP)
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code, media = 2, images = 3).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                fun nextImage(): ByteArray {
+                    var data = frame(client)
+                    while (data.firstOrNull() == '{'.code.toByte()) data = frame(client)
+                    return data
+                }
+                val owner = WebSession.beginVideo(320, 180)
+                WebSession.publish(owner, byteArrayOf(1))
+                val first = WebSession.frame!!
+                assertArrayEquals(VideoPacket.encode(first, 3), nextImage())
+                assertEquals(ImageFormat.JPEG, WebSession.imageFormat)
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertEquals(3, status.getInt("mediaProtocol")); assertEquals(ImageFormat.WEBP, WebSession.imageFormat)
+                WebSession.publish(owner, byteArrayOf(2), ImageFormat.WEBP)
+                val second = WebSession.frame!!
+                assertArrayEquals(VideoPacket.encode(second, 3), nextImage()) // Before first ACK.
+                WebSession.publish(owner, byteArrayOf(3), ImageFormat.WEBP)
+                client.soTimeout = 100
+                try { frame(client); fail("Two frames already occupy the window") }
+                catch (_: java.net.SocketTimeoutException) { }
+                text(client, """{"type":"ack","sessionId":${first.sessionId},"videoEpoch":${first.videoEpoch + 1},"sequence":${first.sequence}}""")
+                try { frame(client); fail("A stale ACK cannot free a slot") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                text(client, """{"type":"ack","sessionId":${first.sessionId},"videoEpoch":${first.videoEpoch},"sequence":${first.sequence}}""")
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!, 3), nextImage())
+                text(client, """{"type":"image-format","format":"jpeg"}""")
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                do { status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                while (status.optString("type") != "status")
+                assertEquals("A failed browser stays on JPEG for this connection", ImageFormat.JPEG, WebSession.imageFormat)
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun aLegacyViewerCannotReceiveCachedWebpFromThePreviousViewer() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            val owner = WebSession.beginVideo(320, 180)
+            WebSession.publish(owner, byteArrayOf(1), ImageFormat.WEBP)
+            handshake(WebSession.code, media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                assertEquals(ImageFormat.JPEG, WebSession.imageFormat)
+                client.soTimeout = 100
+                try { frame(client); fail("A cached WebP must wait for JPEG re-encoding") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                WebSession.publish(owner, byteArrayOf(2))
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!), frame(client))
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun userJpegSettingOverridesWebpCapabilityAndReportsTheEncodedQuality() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
+        WebSession.start(context)
+        try {
+            val owner = WebSession.beginVideo(320, 180)
+            WebSession.publish(owner, byteArrayOf(1), ImageFormat.WEBP)
+            handshake(WebSession.code, media = 2, images = 3).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                client.soTimeout = 100
+                try { frame(client); fail("A browser cannot override the user's JPEG setting") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                WebSession.publish(owner, byteArrayOf(2), ImageFormat.JPEG, 37)
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!, 3), frame(client))
+                text(client, """{"type":"ping"}""")
+                do { status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                while (status.optString("type") != "status")
+                val image = status.getJSONObject("performance").getJSONObject("image")
+                assertEquals("image/jpeg", image.getString("format")); assertEquals(37, image.getInt("quality"))
             }
         } finally { WebSession.stop() }
     }
@@ -229,6 +460,53 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test fun browserGpsRequiresHttpsAndExplicitOptInAndClearsWhenTheViewerDisconnects() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val provider = WebSession.location.createProvider()
+        provider.start(); WebSession.start(context)
+        val fix = """{"type":"location","latitude":25,"longitude":121,"accuracy":5,"timestamp":1700000000000,"ageMillis":0}"""
+        fun settle(client: Socket) {
+            text(client, """{"type":"ping"}""")
+            while (org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).optString("type") != "status") { }
+        }
+        try {
+            handshake(WebSession.code).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                text(client, """{"type":"location-start"}"""); text(client, fix); settle(client)
+                assertNull(provider.latestNmea())
+            }
+            val detachedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (WebSession.hasViewer && System.nanoTime() < detachedBy) Thread.sleep(10)
+            assertFalse(WebSession.hasViewer)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
+            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
+            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val root = CertificateFactory.getInstance("X.509").generateCertificate(endpoint.certificate.inputStream())
+            val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
+            val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
+            val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }
+            (ssl.socketFactory.createSocket("127.0.0.1", 8443) as SSLSocket).use { client ->
+                client.soTimeout = 3000
+                client.sslParameters = client.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                client.startHandshake()
+                client.outputStream.write(("GET /stream?code=${WebSession.code} HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:8443\r\nOrigin: https://127.0.0.1:8443\r\n" +
+                    "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" +
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                text(client, fix); settle(client); assertNull(provider.latestNmea())
+                text(client, """{"type":"location-start"}"""); text(client, fix); settle(client)
+                assertTrue(provider.latestNmea()!!.contains("2500.0000,N,12100.0000,E"))
+                text(client, """{"type":"location-stop"}"""); settle(client); assertNull(provider.latestNmea())
+                text(client, """{"type":"location-start"}"""); text(client, fix); settle(client)
+                assertNotNull(provider.latestNmea())
+            }
+            val clearedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (provider.latestNmea() != null && System.nanoTime() < clearedBy) Thread.sleep(10)
+            assertNull(provider.latestNmea())
+        } finally { WebSession.stop(); provider.close() }
+    }
+
     @Test fun trustedHttpsViewerCanSupplyNegotiatedMicrophonePcm() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         WebSession.start(context)
@@ -316,6 +594,14 @@ class LanWebServerTest {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         com.shilapi.xcertplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
         com.shilapi.xcertplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
+        val audioSource = object : ProjectionSession {
+            override val descriptor = SourceDescriptor("audio-test", "Audio test")
+            override val capabilities = ProjectionCapabilities(emptySet(), audioPlayback = true)
+            override val inputReady = false
+            override fun touch(contacts: List<ProjectionContact>) = false
+            override fun stop() = java.util.concurrent.CompletableFuture.completedFuture(Unit)
+        }
+        assertTrue(projectionSessions.adopt(audioSource, emptySet()))
         WebSession.start(context)
         try {
             handshake(WebSession.code).use { client ->
@@ -340,7 +626,7 @@ class LanWebServerTest {
                 assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
                 assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
             }
-        } finally { WebSession.stop() }
+        } finally { projectionSessions.stop().join(); WebSession.stop() }
     }
     @Test fun plainHttpRejectsMicrophoneCaptureEvenForAPairedViewer() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
@@ -453,23 +739,6 @@ class LanWebServerTest {
         finally { WebSession.stop() }
     }
 
-    @Test fun mediaCommandReturnsCorrelatedUnavailableResultWithoutPhoneAndServesProbe() {
-        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
-        try {
-            assertTrue(URL("http://127.0.0.1:8080/media-probe.js").readText().contains("createProbeWav"))
-            handshake(WebSession.code).use { client ->
-                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
-                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
-                text(client, "{\"type\":\"media-command\",\"command\":\"NEXT\",\"generation\":7,\"requestId\":3}")
-                val result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
-                assertEquals("media-command-result", result.getString("type"))
-                assertEquals(3, result.getInt("requestId"))
-                assertEquals(7, result.getInt("generation"))
-                assertEquals("UNAVAILABLE", result.getString("result"))
-            }
-        } finally { WebSession.stop() }
-    }
-
     @Test fun cachedFrameBusyReplyHeartbeatAndProtocolControlsUseTheAsyncWriter() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
         try {
@@ -481,10 +750,7 @@ class LanWebServerTest {
                 assertArrayEquals("Static image must be sent on connect", byteArrayOf(42), frame(client))
                 // Control replies must work even while the JPEG is waiting for an ACK.
                 text(client, "{\"type\":\"ping\"}")
-                val status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
-                assertEquals("status", status.getString("type"))
-                assertEquals("now-playing", status.getJSONObject("media").getString("type"))
-                assertFalse(status.getJSONObject("media").getBoolean("available"))
+                assertEquals("status", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
                 handshake(WebSession.code).use { other ->
                     assertTrue(readHeaders(other).startsWith("HTTP/1.1 101"))
                     assertEquals("busy", org.json.JSONObject(frame(other).toString(Charsets.UTF_8)).getString("type"))
@@ -656,9 +922,9 @@ class LanWebServerTest {
             headers.split(" ")[1].toInt() to socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
 
-    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1): Socket = Socket("127.0.0.1", port).apply {
+    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1, images: Int = 0, nowPlaying: Boolean = false): Socket = Socket("127.0.0.1", port).apply {
         soTimeout = 3000
-        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media HTTP/1.1\r\nHost: $host\r\n" +
+        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media&images=$images&nowPlaying=${if (nowPlaying) 1 else 0} HTTP/1.1\r\nHost: $host\r\n" +
             "Origin: $origin\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
         getOutputStream().flush()
@@ -677,10 +943,13 @@ class LanWebServerTest {
         maskedFrame(socket, 1, message.toByteArray())
     }
     private fun maskedFrame(socket: Socket, opcode: Int, bytes: ByteArray) {
-        check(bytes.size < 126)
+        check(bytes.size <= 65535)
         // RFC6455 client frames are masked; zero mask is sufficient for this protocol fixture.
         socket.getOutputStream().apply {
-            write(byteArrayOf((0x80 or opcode).toByte(), (0x80 or bytes.size).toByte(), 0,0,0,0)); write(bytes); flush()
+            write(0x80 or opcode)
+            if (bytes.size < 126) write(0x80 or bytes.size)
+            else { write(0x80 or 126); write(bytes.size ushr 8); write(bytes.size and 255) }
+            write(byteArrayOf(0,0,0,0)); write(bytes); flush()
         }
     }
 }

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Wheelplay 小鹏定制版</string>
+    <string name="app_name" translatable="false">Wheelplay 小鹏定制版</string>
     <string name="notification_action_previous">Previous track</string>
     <string name="notification_action_play">Play</string>
     <string name="notification_action_pause">Pause</string>

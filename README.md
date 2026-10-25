@@ -1,115 +1,141 @@
-> **1.0.2 RC3 candidate:** [GitHub download](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.3) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.2-rc.3) · [说明](docs/XPENG-1.0.2-RC3.md). Adds video framing fixes, optional browser zoom compensation, and presentation recovery with bounded WebRTC retry.
-
-> **1.0.1 stable release:** [GitHub](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [Release notes](docs/XPENG-1.0.1.md). Includes in-app updates, music playback and viewport fixes, upstream wireless/microphone/USB reliability, and opt-in experimental no-root browser compatibility. The VPN mode does not map ports 80/443; vehicle compatibility still requires device testing.
-
 # Wheelplay 小鹏定制版
 
-**EN** | [CN](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md)
 
-WheelPlay is an Android-hosted CarPlay server for local networks. It streams your iPhone's CarPlay display to your car's browser and lets you control it through the car's touchscreen.
+Run CarPlay on an Android device and use it from your car's browser. WheelPlay hosts the display, touch controls, and pairing service on your local network; the car needs no additional app or server.
 
-Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
+[GitHub releases](https://github.com/memphisyu/wheelplay/releases) · [Gitee mirror](https://gitee.com/memphisyu/wheelplay/releases) · [Upstream](https://github.com/fython/wheelplay)
 
-## XPENG fork: latest 1.0.1
+This is the XPENG `xpeng` fork. The local 1.0.2 RC4 integration candidate incorporates upstream `45d1740`; it has not been published. It preserves XPENG MSE/FLAC browser music, metadata/artwork, steering controls, opt-in Root background support and dual-channel in-app updates. Open **应用更新 / 小鹏后台保活** in the categorized settings. JPEG and native video remain defaults; experimental sources and optional features require device validation. Close old browser tabs after upgrading and reopen the app address. See the [sync ledger](docs/UPSTREAM-SYNC.md).
 
-[Download Wheelplay XPENG Edition 1.0.1](https://github.com/memphisyu/wheelplay/releases/tag/v1.0.1) · [audio6 tested build](https://github.com/memphisyu/wheelplay/releases/tag/v0.3.0-xpeng-audio6-mse) · [完整中文说明](README.zh-CN.md#小鹏修订版当前版本-101)
+## What it supports
 
-Version 1.0.1 supersedes 1.0 and the RC candidates. It retains the existing package/signature and supports in-place upgrades. Experimental VPN compatibility remains opt-in and is not a guarantee of vehicle connectivity.
+| Input source | Current support |
+| --- | --- |
+| **CarPlay** | USB and wireless iPhone connections, browser display and touch control. Requires valid CarPlay authentication resources. |
+| **Android Auto — experimental** | USB AOA, explicit Head Unit Server TCP connections, and a guided same-phone connection. Device compatibility still needs validation. |
+| **VNC — experimental** | Remote desktop over RFB 3.3/3.7/3.8, JPEG/WebP display, touch, mouse and physical keyboard input, and view-only mode. Actual server/device compatibility still needs validation. |
+| **Diagnostic sources** | H.264, Surface, and framebuffer test sources for checking the display pipeline without a phone connection. |
+| **ICCOA CarLink** | Unavailable: the proprietary SDK is not included and no protocol implementation is provided. |
 
-This personal `xpeng` fork of [fython/wheelplay](https://github.com/fython/wheelplay) runs on an Android phone/tablet and serves CarPlay to the car browser over a local network. It is independent of XPENG and Apple.
-
-| Version | Changes | Validation |
-| --- | --- | --- |
-| **1.0.1**, versionCode 38 | In-app GitHub/Gitee updates; interrupted music playback and viewport fixes; upstream wireless/microphone/USB reliability; optional experimental VPN address compatibility | 719 Android and 102 browser tests passed on the RC7 feature base; release build and checks revalidated for 1.0.1; vehicle VPN connectivity unverified |
-| **1.0**, versionCode 30 | Direct boot listener startup, sticky service recovery, explicit Root keepalive opt-in and paired-browser background wireless preparation; close-aspect viewport changes retain the stream | 522 automated tests passed; locked OnePlus 15T startup needs vehicle testing |
-| **audio8**, versionCode 28 | Syncs upstream OEM customization, appearance, location/microphone sources, safe margins, offline policy and hotspot SSID fixes; retains MSE music and artwork | User confirmed G9 album artwork display; other regression testing still needed |
-| **audio7**, versionCode 27 | Adds JPEG/PNG album artwork to browser MediaMetadata; track-bound requests and stale-cover rejection | 484 automated tests passed; G9 artwork display still needs vehicle testing |
-| **audio6**, versionCode 26 | FLAC-in-fragmented-MP4 music playback through MSE and browser Media Session | User confirmed steering-wheel track skipping and system song information on a G9 |
-| audio1–audio5 | Buffering, lock-screen protection, microphone and media diagnostics | Historical test builds |
-
-Install the Release APK on the Android host. Public APKs contain no accessory authentication identity: import your own valid resources on first use; updates with the same package/signature retain existing app data. Connect the host and car to a mutually reachable LAN, pair the browser, and enable browser audio. First test with browser microphone disabled. After upgrading, close the old browser tab and reopen the page, then tap to allow playback.
-
-Check `audio.mediaOutput` in media diagnostics: `mse-flac` indicates the new path; `web-audio` indicates fallback. In audio7, `media.artwork.available` indicates receipt of a usable cover and attempted Media Session publication, not proof that the car displays it. Test the system media card and steering-wheel controls and export diagnostics if needed.
-
-Wireless input is typically AAC, decoded on Android to PCM before browser FLAC/MP4 framing; **AAC passthrough is not implemented**. Supported music is 44.1/48 kHz mono/stereo; navigation/calls retain Web Audio. Unsupported FLAC MSE or decoding errors fall back to Web Audio. Microphone input needs trusted HTTPS; a publicly trusted certificate for your own hostname can avoid installing a CA on the car. Certificate name and LAN DNS must match the address used. Microphone-related vehicle audio routing still needs separate testing.
-
-For version 1.0, enable boot startup and auto-connect, finish wireless pairing/permissions, and apply Root keepalive once inside the app. Start with microphone disabled when testing locked background startup. The car browser must already be paired, and the phone must join the car hotspot. DNS must point to the current host LAN IP. Force-stop/OEM restrictions can still block recovery; device behavior still requires verification. Similar viewport aspect ratios retain negotiated dimensions with the existing proportional fit, while major changes still reconnect.
-
-Each Release includes an APK, corresponding source ZIP and SHA-256 checksums. Authentication identities, TLS private keys and Android signing keys are excluded. FLAC framing adapts [DashPlay](https://github.com/yizhixiaoheigou/DashPlay) under GPL-3.0; see [attribution](docs/DASHPLAY-NOTICE.md).
-
-[audio9 setup and test guide](docs/XPENG-AUDIO9-BACKGROUND-RESIZE.md) · [XPENG notes](XPENG.md) · [MSE test guide](docs/XPENG-AUDIO6-MSE.md) · [artwork test guide](docs/XPENG-AUDIO7-ARTWORK.md) · [authentication import](docs/AUTHENTICATION_IMPORT.md)
+One projection source and one browser control session can be active at a time. For Android Auto, audio plays on the Android host and microphone input uses the host; browser audio/microphone routing and automatic wireless discovery are not implemented. See the [Android Auto guide](docs/ANDROID_AUTO.md) for setup and limitations.
 
 ## Features
 
-- **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
-- **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or JPEG compatibility mode in settings. If passthrough fails, video automatically falls back to JPEG while audio and touch keep their existing routes.
-- **Optional browser audio**: After pairing, the browser can play CarPlay audio. The browser microphone can provide CarPlay voice input through a trusted HTTPS page; Android handles audio and microphone input by default.
-- **Easy pairing**: Scan the QR code or enter a code once. Remembered browsers restore pairing automatically and retain a launch button for selecting options before streaming.
-- **iPhone connection management**: USB and wireless connections, connection status, and session management.
-- **Local network access**: Automatically detects available network addresses for browser access.
-- **Background service**: Background operation and automatic connection.
-- **Display and audio settings**: Adjustable display size, resolution, frame rate, and audio buffering.
-- **CarPlay preferences**: Follow Android's day/night mode or force day/night; select Android/browser audio output and Android/browser/disabled microphone input. Preview custom 0–40% safe margins on each edge; microphone and safe-area changes reconnect the iPhone. Keep CarPlay when browsers go offline, or disconnect the iPhone after 1/5 minutes; browser reconnection cancels the timer.
-- **Custom car branding**: In **Settings → OEM car name and icon**, rename CarPlay's return-to-car entry, select and crop a square image, or restore the default XPENG name and icon. Changes apply on the next iPhone connection. Images are stored privately in the app, so the original file is no longer needed.
-- **Location source**: **Settings → Location → Location source** defaults to the iPhone's own location, with no external location advertised or reported by WheelPlay. Select the Android device to provide its position when requested by the iPhone, after reconnecting and granting precise location permission. iOS and the navigation app determine location fusion; wireless connections on older Android versions can still require location permission.
-- **Diagnostic export**: Save diagnostic reports locally for troubleshooting.
+- **Display and touch:** WebRTC H.264 / supported HEVC passthrough, JPEG / WebP compatibility streaming, fullscreen, and adjustable resolution, frame rate, and image quality. Native video is the default renderer; two experimental Canvas modes are also available.
+- **Pairing:** Scan the browser's QR code or enter a pairing code. Remembered browsers can restore pairing; view, rename, or revoke them in settings.
+- **CarPlay audio and controls:** Android audio and microphone by default, optional browser routing, and Media Session metadata and playback controls where the browser and phone app support them.
+- **CarPlay preferences:** Day/night mode, safe margins, custom return-to-car name and icon, browser-disconnection behavior, and optional Android or browser GPS. The iPhone's own location is used by default.
+- **Connection options:** Configurable HTTP / HTTPS listeners, certificate import, and opt-in Tesla compatibility through experimental no-root VPN or root hotspot routing.
+- **Languages and diagnostics:** English, Simplified Chinese, and Traditional Chinese app/browser text follows Android's locale. Export diagnostic reports locally; the separate product website offers Chinese and English with light and dark themes.
 
 ## Getting started
 
-1. Install and launch WheelPlay on the Android server device.
-2. Connect the Android device and your car to the same local network, then open the address shown in the app in your car's browser.
-3. On first use, scan the QR code with WheelPlay and approve pairing, then select browser options and click “启动显示” (Start display). Alternatively, enter the pairing code and click “配对并启动显示” (Pair and start display). On later visits, pairing restores automatically; select options and click Start display. Select “启动后隐藏顶栏并全屏” to request fullscreen when launching and hide the top bar after connecting. Exiting fullscreen restores the top bar; browsers without fullscreen support only hide the bar.
-4. Keep WheelPlay in the foreground on Android. Click “连接 iPhone” (Connect iPhone) on the paired browser’s waiting screen to start using the app’s current USB / wireless settings, or connect from the app. Complete any device selection or permission prompts on Android and allow CarPlay on the iPhone.
-5. Once connected, view and control CarPlay in your car's browser.
+### 1. Install WheelPlay
 
-Manage remembered browsers under Settings → 浏览器设备 (Browser devices) → 连接过的设备 (Connected devices). View names, pairing times, last connection times and addresses; rename or remove one browser, or remove all. Removal immediately disconnects the device and revokes its existing sessions. Browser disconnection and server restarts retain device memory. Up to 32 browsers can be saved; remove an old entry if the limit is reached.
+You need an **Android 9 or newer** host, a supported phone, and a modern car browser that can reach the host over the local network. Ordinary LAN operation does not require root.
 
-Device memory is scoped to the current browser and origin (scheme, host and port). Clearing or disabling browser storage, switching HTTP / HTTPS, or changing the address requires fresh pairing. Android persists only hashes of random device secrets; the six-digit code is never stored as a remembered credential, and browser credentials are excluded from app backups.
+Download `WheelPlay-Xpeng-*.apk` from this fork’s [GitHub Releases](https://github.com/memphisyu/wheelplay/releases) or [Gitee releases](https://gitee.com/memphisyu/wheelplay/releases). Existing XPENG installations require the same package and signing identity for an in-place update.
 
-For 60 fps, select WebRTC video passthrough under Settings → Display & Audio and set the negotiated frame rate to 60. Apply the settings and reconnect for the changes to take effect. Actual frame rate depends on the iPhone's output, network conditions, and browser decoding capabilities; static scenes may run at a lower frame rate. WebRTC uses local-network UDP without external STUN/TURN servers. It automatically falls back to JPEG if UDP is unavailable or the source video codec is incompatible. Allowing HEVC on the iPhone enables H.265 passthrough to browsers that support HEVC over WebRTC; H.264 is recommended for older browsers.
+### 2. Set up your input source
 
-The WebRTC interruption tolerance setting offers 4, 10 (default), or 30 seconds and applies on the next browser connection. Recoverable interruptions keep the last video frame visible while waiting for recovery; persistent problems fall back to JPEG after the grace period. Unsupported codecs and terminal connection failures still fall back immediately. This does not enlarge the video buffer or change control and audio connection rules. Refresh the webpage after updating the App. See the [stability and troubleshooting notes](docs/WEBRTC_RECOVERY.md) (Chinese).
+For **CarPlay**, open **Settings → CarPlay authentication resources**. Public CI builds do not bundle these resources. Import a matching `identity.pk8` and `certificate.p7b`, or import them from a compatible DiPlay APK using the app's guided flow. DiPlay itself does not need to be installed. Imports are validated locally and stored in private, backup-excluded storage; they are not uploaded. See the [authentication import guide](docs/AUTHENTICATION_IMPORT.md).
 
-If the video element renders incorrectly in your car's browser, enable “Use Canvas to display video (experimental)” on the webpage's connection screen before connecting. This is disabled by default. The selection is saved in the current browser and persists across automatic reconnects and page reloads; if browser storage is disabled, it applies only to the current page. WebRTC video is still decoded by an offscreen `<video>` element and drawn directly onto a visible Canvas with `drawImage()`. Video frame callbacks are preferred, with animation frames used for older browsers or when offscreen callbacks stall. Touch coordinates are mapped to the video's aspect ratio, and drawing failures trigger a fallback to JPEG. This mode may increase GPU / CPU usage. The video frame rate in the status bar still reflects the browser's video presentation statistics, not the actual Canvas drawing rate.
+Missing CarPlay resources do not prevent the Web service, browser pairing, or diagnostic sources from working. For **Android Auto**, use **Input sources → Android Auto** and follow the [USB / local / TCP instructions](docs/ANDROID_AUTO.md). Same-phone mode requires manually starting Android Auto's Head Unit Server first.
 
-Canvas mode requires testing on car browsers such as NIO's. Changing the rendering path may help if an overlay covers only the native video element; it cannot guarantee success if the system stops decoding or overlays the entire page. Test while the vehicle is parked. Drivers should use only essential navigation interfaces while driving.
+For **VNC**, open **Input sources → VNC** and enter the IP address, port, and optional temporary password of an existing VNC server. Use a trusted LAN or VPN: VNC traffic is unencrypted and TLS/VeNCrypt is not supported. See the [VNC guide](docs/VNC.md) for setup and limitations.
 
-Select Audio output and Microphone source under Settings → Display & Audio. Output changes apply immediately; microphone source changes reconnect the iPhone. Disabling microphone input stops capture/uplink and removes input capability advertisements. Current routes are shown; unavailable browsers fall back to Android, while disabled microphone input blocks all fallback capture. Browser microphone input requires a trusted local HTTPS certificate, pairing through HTTPS, and granting microphone permission. See the [browser audio guide](docs/BROWSER_AUDIO.md) (Chinese). If trusted HTTPS or AudioWorklet is unavailable, use the Android microphone.
+### 3. Pair the car browser
 
-## Requirements and limitations
+1. Start WheelPlay and connect the Android host and car to a network where they can reach each other.
+2. Open the **local address shown in the app** in the car browser. The product website is only for downloads and documentation.
+3. Scan the browser's QR code with WheelPlay and approve pairing, or enter the pairing code in the browser. Select browser options and start the display.
+4. For CarPlay, keep WheelPlay in the foreground during setup, connect the iPhone by USB or wirelessly, and complete Android permissions and the iPhone's CarPlay prompt. You can also start the connection from the paired browser's waiting screen.
+5. Once connected, use the car touchscreen to control the projected interface.
 
-Tesla compatibility helps car browsers that block private IP ranges reach the phone's local service through a compatible access address. It also applies to other vehicle brands with the same restriction. Choose **No-root VPN (experimental)** or **Root hotspot routing** under Settings → Tesla compatibility → Connection method. Both are opt-in; switching methods disables the mode until explicitly enabled again, retaining each method's saved address.
+Later visits can restore pairing, but still require starting the display. Clearing browser storage, changing the address, or switching HTTP / HTTPS requires pairing again. Remove remembered devices under **Settings → Browser devices → Connected devices**.
 
-- **No-root VPN** requires Android VPN consent, with no Root or Shizuku. Connect the Tesla to this phone's system hotspot and try `http://6.6.6.6:8080`, using the actual Web listener port; no low-port mapping is provided. The shared VPN service retains the IPv4 alias TUN and establishes wired CarPlay's IPv6/NCM TUN last. Disconnecting the iPhone restores the placeholder VPN. Enabling the alias or changing its IP during wired CarPlay waits until disconnect. Long-lived old TUN retention is not guaranteed by Android's API contract and may fail across devices or system updates. “Address configured” confirms the address exists on the phone; hotspot access, Tesla browser behavior, and WebRTC ICE/UDP require device testing.
-- **Root hotspot routing** embeds the [VPN Hotspot](https://github.com/Mygod/VPNHotspot) adaptation and requires `su`, `ip`, and `iptables`. Grant Root manually and enable it; the default entry is `http://100.96.0.1/`. Ports `1–1023` (defaults `80` / `443`) map to the Web listener ports. Startup checks Root only for an enabled Root mode. This method does not request VPN consent and keeps wired CarPlay's IPv6 VPN independent.
+## Compatibility notes
 
-Both methods clean up when disabled or when the Web service stops. Ordinary LAN Web listeners remain independent; optional HTTPS still requires a trusted certificate. See the [Tesla compatibility guide](docs/TESLA_HTTP.md) (Chinese).
-
-Settings → Web listeners (Web 监听) contains the HTTP port (default `8080`), a self-managed Web hostname shared by HTTP and HTTPS, and an optional HTTPS switch. No Root access is required; listener ports range from `1024–65535`. Enabling HTTPS reveals its port (default `8443`) and inline certificate types: local default, PEM, and PKCS#12. Android's file picker imports PEM chains plus private keys (including encrypted keys) or PKCS#12 (`.p12` / `.pfx`) with passwords and key-alias selection. Identities are validated and saved in private non-backup storage; failed imports retain the current certificate, and occupied ports retain the current listener. Disabling HTTPS stops TLS while retaining its settings and certificate. See [Web listener and certificate setup](docs/BROWSER_AUDIO.md).
-
-- The server device requires Android 9 or later. The car's browser must support modern web features and touch interaction.
-- The server device and car must be able to reach each other over the local network. Wireless connection compatibility depends on the devices' networking capabilities.
-- Android handles audio and microphone input by default; browser routing must be enabled manually. Browser microphone input requires a trusted HTTPS origin, using a publicly trusted hostname certificate or an installed trusted local CA.
-- Only one browser control session is allowed at a time.
-- Streaming smoothness and connection stability depend on device performance, network quality, and system background restrictions.
-- Use only on trusted local networks. HTTP pairing, WebSocket control, and JPEG transport are unencrypted; WebRTC video uses DTLS-SRTP. Browser microphone input uses local HTTPS/WSS. Do not bypass certificate warnings or expose the service to the public internet.
+- Browser microphone and GPS access require trusted HTTPS and browser permissions. Android handles CarPlay audio/microphone by default; browser GPS is off on each page load. See [audio and HTTPS setup](docs/BROWSER_AUDIO.md).
+- Actual frame rate and stability depend on the phone, host, browser, network, and Android background restrictions. WebRTC uses local UDP without external STUN/TURN and falls back to image streaming when necessary. Canvas rendering does not guarantee higher frame rates or bypass car browser restrictions.
+- Browsers that block private IP addresses may need [Tesla compatibility mode](docs/TESLA_HTTP.md). Its availability does not establish compatibility with every car or Android device.
+- Use a trusted local network. HTTP traffic is unencrypted; optional HTTPS requires a trusted certificate. Do not expose the service to the public internet. Complete setup and compatibility testing while parked.
 
 ## Build
 
-Use Android NDK 28.2.13676358 and CMake 3.22.1. The first build fetches pinned versions of libdatachannel and Mbed TLS from GitHub; subsequent builds reuse the local CMake cache. Run:
+### Android app
+
+The current build uses the following toolchain. The Gradle wrapper and daemon JVM configuration are committed to the repository.
+
+| Tool | Version |
+| --- | --- |
+| JDK | 25 |
+| Gradle / Android Gradle Plugin | 9.3.1 / 9.1.0 |
+| Android SDK / Build Tools | API 36 / 36.0.0 |
+| Android NDK / CMake | 28.2.13676358 / 3.22.1 |
+| Node.js for browser tests and fixtures | 22 or newer |
+
+Configure your Android SDK through `ANDROID_HOME` or `sdk.dir` in an untracked `local.properties`, install the toolchain above, then run from the repository root:
 
 ```sh
 ./gradlew :mobile:assembleDebug
 ```
 
-Source-only builds omit CarPlay authentication resources. Web and CarPlay remain disabled until valid resources are configured; successful import automatically starts the Web service. APKs with valid bundled resources work immediately and still allow replacement, with imported resources taking priority. Open **Settings → CarPlay authentication resources** to select `identity.pk8` and `certificate.p7b`, or follow the DiPlay website download link and import the downloaded APK. You can also share that APK with WheelPlay from a file manager; DiPlay does not need to be installed. Imports run locally and replace existing resources only after key/certificate validation. Resources stay in private, backup-excluded app storage and are never uploaded. See the [authentication import guide](docs/AUTHENTICATION_IMPORT.md).
+Output: `mobile/build/outputs/apk/debug/mobile-debug.apk` (application ID `moe.feng.wheelplay.debug`). The first native build fetches pinned libdatachannel and Mbed TLS sources from GitHub. The default build excludes CarPlay authentication resources; import them after installation.
 
-Developers may still set `WHEELPLAY_AUTH_ASSETS_DIR` (or `DIPLAY_AUTH_ASSETS_DIR`) to a local asset directory, or use `.local/auth-assets/`, containing `offline-mfi/identity.pk8` and `offline-mfi/certificate.p7b`. These files stay out of Git. Run `./gradlew :mobile:assembleProvisionedDebug` to build and verify both packaged assets against the local input. Public source-only APKs should use the ordinary build without configured authentication assets, letting users import their own resources after installation.
+For a private provisioned build, place `offline-mfi/identity.pk8` and `offline-mfi/certificate.p7b` beneath `.local/auth-assets/` or the directory selected by `WHEELPLAY_AUTH_ASSETS_DIR`, then run `./gradlew :mobile:assembleProvisionedDebug` to verify the packaged files. Keep these resources out of Git and public APKs.
+
+Run the Android checks used by CI:
+
+```sh
+./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest \
+  :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug
+```
+
+The instrumented test APK is built by this command; CI separately runs browser-page tests on Android 9 and Android 16 emulators. For browser-side checks and the desktop demo:
+
+```sh
+npm ci
+npm test
+npm run check
+npm run demo
+```
+
+The demo runs at `http://localhost:8081` with pairing code `123456` and synthetic video. It is a development fixture; the actual phone connection and LAN server run in the Android app.
+
+### Product website
+
+The Astro website in [`website/`](website/README.md) has independent dependencies. Use Node.js 24 LTS; no Android SDK is needed.
+
+```sh
+npm ci --prefix website
+npm run site:dev
+```
+
+To validate and build:
+
+```sh
+npm run site:check
+npm run site:build
+npm run site:test
+```
+
+The static output is `website/dist/`. Chinese and English documentation lives in Markdown. Cloudflare Workers or Pages Functions handle `/download` through a shared cached GitHub artifact resolver; Astro's development server does not run that endpoint. See the [website guide](website/README.md) for deployment configuration.
+
+## Repository and documentation
+
+| Path | Contents |
+| --- | --- |
+| [`mobile/`](mobile/) | Android application entry point and packaging |
+| [`common/`](common/) | Host UI, Compose settings, LAN server, browser assets, projection sources, and native WebRTC bridge |
+| [`shared/`](shared/) | CarPlay / AirPlay, Android Auto, and VNC protocol components and shared resources |
+| [`website/`](website/) | Astro product website and Cloudflare download endpoint |
+| [`scripts/`](scripts/), [`test/`](test/) | Desktop fixtures and browser / repository checks |
+| [`docs/`](docs/README.md) | Implementation guides, validation notes, and retained upstream documentation |
+
+For deeper troubleshooting, see [projection sources](docs/PROJECTION_IMPLEMENTATION.md), [WebRTC recovery](docs/WEBRTC_RECOVERY.md), [image streaming](docs/IMAGE_STREAM.md), [rendering modes](docs/MEDIA_PRESENTATION.md), and [media controls](docs/MEDIA_SESSION.md). Most implementation guides are in Chinese. Browser diagnostics are exposed through `window.wheelplayStats`; their per-stage metrics do not measure end-to-end latency.
 
 ## Origins and licensing
 
-This project is based on DiPlay / xcertplay and retains the upstream licenses and third-party notices. See [LICENSE](LICENSE) and [third-party notices](docs/upstream/THIRD_PARTY_NOTICES.md). Third-party assets and components remain subject to their respective licenses.
-
-WebRTC uses [libdatachannel 0.24.1](https://github.com/paullouisageneau/libdatachannel/tree/v0.24.1) and [Mbed TLS 3.6.5](https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-3.6.5), with versions pinned in the CMake configuration. [Native dependency licenses](common/src/main/assets/webrtc-licenses.txt) are distributed with the APK.
-
-For streaming diagnostics, inspect `window.wheelplayStats` in the browser console. It includes source input and send rates over a 2-second window; decryption, queueing, and sending times as means and P95 values over the latest 240 samples; drop counts; browser receive, decode, and presentation rates; packet loss; and RTT. Rates and timings are measured separately for each stage and do not represent end-to-end latency. Unsupported browser metrics are `null`. The passthrough queue budget is 50 ms; on timeout, the reference chain is dropped until a keyframe arrives. The pinned-version patch for native media send feedback is in `common/src/main/cpp/media_send_feedback.cmake`. A successful local send only means the transport layer accepted the data; receiver feedback indicates subsequent progress.
+WheelPlay is based on **DiPlay / xcertplay** and retains the upstream licenses and notices. See [LICENSE](LICENSE), the [upstream notes](docs/UPSTREAM.md), and [third-party notices](docs/upstream/THIRD_PARTY_NOTICES.md); third-party components and assets remain subject to their respective terms. Native WebRTC dependencies have [separate license notices](common/src/main/assets/webrtc-licenses.txt), also distributed in the APK.

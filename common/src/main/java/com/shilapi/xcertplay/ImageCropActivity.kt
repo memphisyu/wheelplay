@@ -19,6 +19,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.shilapi.xcertplay.shared.R as UiR
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.ceil
@@ -41,85 +42,97 @@ class ImageCropActivity : Activity() {
         }
 
         cropView = SquareCropView(this)
-        statusView = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            text = "正在读取图片…"
-        }
+        statusView =
+            TextView(this).apply {
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                text = getString(UiR.string.ui_reading_image)
+            }
 
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(16))
-        }
+        val controls =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(10), dp(16), dp(16))
+            }
         controls.addView(
             Button(this).apply {
-                text = "取消"
+                text = getString(UiR.string.ui_cancel)
                 isAllCaps = false
                 setOnClickListener {
                     setResult(RESULT_CANCELED)
                     finish()
                 }
             },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
         )
         controls.addView(
             Button(this).apply {
-                text = "保存图标"
+                text = getString(UiR.string.ui_save_icon)
                 isAllCaps = false
                 setOnClickListener { saveCrop() }
             },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = dp(12)
-            },
+            LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                .apply { marginStart = dp(12) },
         )
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            addView(
-                cropView,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            addView(
-                statusView,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.TOP or Gravity.CENTER_HORIZONTAL,
-                ).apply { topMargin = dp(12) },
-            )
-            addView(
-                controls,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.BOTTOM,
-                ),
-            )
-        }
+        val root =
+            FrameLayout(this).apply {
+                setBackgroundColor(Color.BLACK)
+                addView(
+                    cropView,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                addView(
+                    statusView,
+                    FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+                        )
+                        .apply { topMargin = dp(12) },
+                )
+                addView(
+                    controls,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        Gravity.BOTTOM,
+                    ),
+                )
+            }
         setContentView(root)
 
         executor.execute {
-            val bitmap = try {
-                decodeBitmap(uri)
-            } catch (_: Exception) {
-                null
-            }
+            val bitmap =
+                try {
+                    decodeBitmap(uri)
+                } catch (_: Exception) {
+                    null
+                }
             runOnUiThread {
                 if (isFinishing || isDestroyed) {
                     bitmap?.recycle()
                     return@runOnUiThread
                 }
                 if (bitmap == null) {
-                    statusView.text = "无法读取图片，请返回重新选择 PNG 或 JPEG 图片"
+                    statusView.text =
+                        getString(UiR.string.ui_could_not_read_image_go_back_and_choose_a)
                 } else {
                     cropView.setBitmap(bitmap)
-                    statusView.text = "拖动调整位置，双指缩放；保存为正方形图标"
+                    statusView.text =
+                        getString(UiR.string.ui_drag_to_reposition_and_pinch_to_zoom_saved_as)
                 }
             }
         }
@@ -132,46 +145,46 @@ class ImageCropActivity : Activity() {
     }
 
     private fun saveCrop() {
-        val cropped = cropView.cropToSquare() ?: run {
-            statusView.text = "图片尚未就绪，请稍候"
-            return
-        }
-        val encoded = ByteArrayOutputStream().use { output ->
-            if (!cropped.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+        val cropped =
+            cropView.cropToSquare()
+                ?: run {
+                    statusView.text = getString(UiR.string.ui_image_is_not_ready_please_wait)
+                    return
+                }
+        val encoded =
+            ByteArrayOutputStream().use { output ->
+                if (!cropped.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                    cropped.recycle()
+                    statusView.text =
+                        getString(UiR.string.ui_could_not_process_image_go_back_and_choose_another)
+                    return
+                }
                 cropped.recycle()
-                statusView.text = "无法处理图片，请返回重新选择"
-                return
+                output.toByteArray()
             }
-            cropped.recycle()
-            output.toByteArray()
-        }
         try {
             AirPlayPersistence.saveCustomAirPlayIcon(applicationContext, encoded)
-            setResult(
-                RESULT_OK,
-                Intent().putExtra(EXTRA_CROP_COMPLETE, true),
-            )
+            setResult(RESULT_OK, Intent().putExtra(EXTRA_CROP_COMPLETE, true))
             finish()
         } catch (_: Exception) {
-            statusView.text = "无法保存图标，请重试"
+            statusView.text = getString(UiR.string.ui_could_not_save_icon_try_again)
         }
     }
 
     private fun decodeBitmap(uri: Uri): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         var sampleSize = 1
         while (max(bounds.outWidth, bounds.outHeight) / sampleSize > MAX_DECODE_EDGE) {
             sampleSize *= 2
         }
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
+        val options =
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
         return contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, options)
         }
@@ -182,16 +195,18 @@ class ImageCropActivity : Activity() {
     private class SquareCropView(context: android.content.Context) : View(context) {
         private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private val dimPaint = Paint().apply { color = Color.argb(145, 0, 0, 0) }
-        private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = 2f * resources.displayMetrics.density
-        }
-        private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(150, 255, 255, 255)
-            style = Paint.Style.STROKE
-            strokeWidth = 1f * resources.displayMetrics.density
-        }
+        private val borderPaint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.STROKE
+                strokeWidth = 2f * resources.displayMetrics.density
+            }
+        private val gridPaint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(150, 255, 255, 255)
+                style = Paint.Style.STROKE
+                strokeWidth = 1f * resources.displayMetrics.density
+            }
         private val matrix = Matrix()
         private val viewport = RectF()
         private val mappedBitmap = RectF()
@@ -223,7 +238,13 @@ class ImageCropActivity : Activity() {
             canvas.drawRect(0f, 0f, width.toFloat(), viewport.top, dimPaint)
             canvas.drawRect(0f, viewport.bottom, width.toFloat(), height.toFloat(), dimPaint)
             canvas.drawRect(0f, viewport.top, viewport.left, viewport.bottom, dimPaint)
-            canvas.drawRect(viewport.right, viewport.top, width.toFloat(), viewport.bottom, dimPaint)
+            canvas.drawRect(
+                viewport.right,
+                viewport.top,
+                width.toFloat(),
+                viewport.bottom,
+                dimPaint,
+            )
 
             val save = canvas.save()
             canvas.clipRect(viewport)
@@ -233,10 +254,34 @@ class ImageCropActivity : Activity() {
             canvas.drawRect(viewport, borderPaint)
             val thirdWidth = viewport.width() / 3f
             val thirdHeight = viewport.height() / 3f
-            canvas.drawLine(viewport.left + thirdWidth, viewport.top, viewport.left + thirdWidth, viewport.bottom, gridPaint)
-            canvas.drawLine(viewport.right - thirdWidth, viewport.top, viewport.right - thirdWidth, viewport.bottom, gridPaint)
-            canvas.drawLine(viewport.left, viewport.top + thirdHeight, viewport.right, viewport.top + thirdHeight, gridPaint)
-            canvas.drawLine(viewport.left, viewport.bottom - thirdHeight, viewport.right, viewport.bottom - thirdHeight, gridPaint)
+            canvas.drawLine(
+                viewport.left + thirdWidth,
+                viewport.top,
+                viewport.left + thirdWidth,
+                viewport.bottom,
+                gridPaint,
+            )
+            canvas.drawLine(
+                viewport.right - thirdWidth,
+                viewport.top,
+                viewport.right - thirdWidth,
+                viewport.bottom,
+                gridPaint,
+            )
+            canvas.drawLine(
+                viewport.left,
+                viewport.top + thirdHeight,
+                viewport.right,
+                viewport.top + thirdHeight,
+                gridPaint,
+            )
+            canvas.drawLine(
+                viewport.left,
+                viewport.bottom - thirdHeight,
+                viewport.right,
+                viewport.bottom - thirdHeight,
+                gridPaint,
+            )
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -313,17 +358,15 @@ class ImageCropActivity : Activity() {
             val cropLeft = (centerX - square / 2).coerceIn(0, source.width - square)
             val cropTop = (centerY - square / 2).coerceIn(0, source.height - square)
             val cropped = Bitmap.createBitmap(source, cropLeft, cropTop, square, square)
-            val output = Bitmap.createBitmap(
-                OUTPUT_ICON_PIXELS,
-                OUTPUT_ICON_PIXELS,
-                Bitmap.Config.ARGB_8888,
-            )
-            Canvas(output).drawBitmap(
-                cropped,
-                null,
-                RectF(0f, 0f, OUTPUT_ICON_PIXELS.toFloat(), OUTPUT_ICON_PIXELS.toFloat()),
-                imagePaint,
-            )
+            val output =
+                Bitmap.createBitmap(OUTPUT_ICON_PIXELS, OUTPUT_ICON_PIXELS, Bitmap.Config.ARGB_8888)
+            Canvas(output)
+                .drawBitmap(
+                    cropped,
+                    null,
+                    RectF(0f, 0f, OUTPUT_ICON_PIXELS.toFloat(), OUTPUT_ICON_PIXELS.toFloat()),
+                    imagePaint,
+                )
             if (cropped !== source) cropped.recycle()
             return output
         }
@@ -331,7 +374,9 @@ class ImageCropActivity : Activity() {
         private fun configure() {
             val source = bitmap ?: return
             if (width <= 0 || height <= 0) return
-            val side = min(width, height).toFloat() - 2f * CROP_PADDING_DP * resources.displayMetrics.density
+            val side =
+                min(width, height).toFloat() -
+                    2f * CROP_PADDING_DP * resources.displayMetrics.density
             if (side <= 0f) return
             viewport.set(
                 (width - side) / 2f,
@@ -357,9 +402,19 @@ class ImageCropActivity : Activity() {
             matrix.getValues(values)
             val scale = values[Matrix.MSCALE_X]
             if (scale < minimumScale) {
-                matrix.postScale(minimumScale / scale, minimumScale / scale, viewport.centerX(), viewport.centerY())
+                matrix.postScale(
+                    minimumScale / scale,
+                    minimumScale / scale,
+                    viewport.centerX(),
+                    viewport.centerY(),
+                )
             } else if (scale > maximumScale) {
-                matrix.postScale(maximumScale / scale, maximumScale / scale, viewport.centerX(), viewport.centerY())
+                matrix.postScale(
+                    maximumScale / scale,
+                    maximumScale / scale,
+                    viewport.centerX(),
+                    viewport.centerY(),
+                )
             }
             mappedBitmap.set(0f, 0f, source.width.toFloat(), source.height.toFloat())
             matrix.mapRect(mappedBitmap)

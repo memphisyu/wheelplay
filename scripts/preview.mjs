@@ -1,5 +1,7 @@
 // Desktop-only browser QA fixture. The production HTTP/WebSocket server runs in the APK.
 import http from 'node:http';
+import { resourceStrings, renderBrowserTemplate } from './resource-strings.mjs';
+const messages = resourceStrings();
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
@@ -43,11 +45,13 @@ const server = http.createServer(async (req,res) => {
     res.setHeader('Content-Type', 'application/json'); res.setHeader('Cache-Control', 'no-store');
     res.end(JSON.stringify(data)); return;
   }
-  const file = { '/':'index.html','/app.js':'app.js','/browser-audio.js':'browser-audio.js',
-    '/audio-worklet.js':'audio-worklet.js','/style.css':'style.css' }[req.url];
+  if (req.url === '/i18n.js') { res.setHeader('Content-Type', 'text/javascript; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end('globalThis.wheelplayMessages = ' + JSON.stringify(messages) + ';'); return; }
+  const file = { '/':'index.html','/app.js':'app.js','/text.js':'text.js','/browser-audio.js':'browser-audio.js','/browser-location.js':'browser-location.js',
+    '/audio-worklet.js':'audio-worklet.js','/browser-media-session.js':'browser-media-session.js','/desktop-input.js':'desktop-input.js','/style.css':'style.css' }[req.url];
   if (!file) { res.writeHead(404);res.end();return; }
   try {
-    const body = await readFile(new URL(file,root));
+    let body = await readFile(new URL(file,root));
+    if (file === "index.html") body = renderBrowserTemplate(body.toString(), messages);
     res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8');
     res.setHeader('Cache-Control','no-store');res.end(body);
   } catch { res.writeHead(500);res.end(); }

@@ -6,10 +6,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.materialswitch.MaterialSwitch
+import androidx.compose.ui.test.*
 import com.shilapi.xcertplay.network.TeslaHttpConfig
 import com.shilapi.xcertplay.network.TeslaHttpMode
 import com.shilapi.xcertplay.web.RootAccess
@@ -25,42 +22,62 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
-import org.robolectric.shadows.ShadowDialog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "zh-rCN-w360dp-h800dp", shadows = [TeslaVpnSettingsUiTest.ConsentShadow::class])
-class TeslaVpnSettingsUiTest {
+@Config(
+    sdk = [29],
+    qualifiers = "zh-rCN-w360dp-h800dp",
+    shadows = [TeslaVpnSettingsUiTest.ConsentShadow::class],
+)
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+class TeslaVpnSettingsUiTest : ComposeSettingsTest() {
     @Implements(VpnService::class)
     class ConsentShadow : org.robolectric.shadows.ShadowService() {
         companion object {
-            @JvmStatic @Implementation fun prepare(context: Context): Intent = Intent("wheelplay.test.VPN_CONSENT")
+            @JvmStatic
+            @Implementation
+            fun prepare(context: Context): Intent = Intent("wheelplay.test.VPN_CONSENT")
         }
     }
-    private fun views(view: View): List<View> = listOf(view) +
-        if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
-    private fun all(activity: DiPlayActivity) = views(activity.window.decorView)
-    private fun openSettings(activity: DiPlayActivity) {
-        all(activity).filterIsInstance<BottomNavigationView>().single().selectedItemId = 3
-    }
-    private fun enable(activity: DiPlayActivity) = all(activity).filterIsInstance<MaterialSwitch>()
-        .single { it.contentDescription?.toString() == "启用免 Root Tesla 兼容" }
 
-    @Test fun nonRootUserCanSelectVpnAndDeniedConsentKeepsItDisabled() {
+    private fun views(view: View): List<View> =
+        listOf(view) +
+            if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
+            else emptyList()
+
+    private fun all(activity: DiPlayActivity) = views(activity.window.decorView)
+
+    private fun openSettings(activity: DiPlayActivity) {
+        SettingsNavigation.open(activity, "Tesla 兼容（实验）", compose)
+    }
+
+    private fun changeMode(index: Int) {
+        clickTag("choice:TESLA_MODE")
+        chooseOption(index)
+    }
+
+    private fun enable() {
+        clickTag("toggle:TESLA")
+    }
+
+    @Test
+    fun nonRootUserCanSelectVpnAndDeniedConsentKeepsItDisabled() {
         val original = RootAccess.authorize
         var rootRequests = 0
         RootAccess.startupChecked = false
-        RootAccess.authorize = { rootRequests++; throw java.io.IOException("No root") }
+        RootAccess.authorize = {
+            rootRequests++
+            throw java.io.IOException("No root")
+        }
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
             openSettings(activity)
             assertFalse(TeslaHttpCompatibility.config(activity).enabled)
-            all(activity).single { it.contentDescription?.toString()?.startsWith("连接方案，") == true }.performClick()
-            val dialog = ShadowDialog.getLatestDialog() as AlertDialog
-            dialog.listView.performItemClick(dialog.listView.getChildAt(1), 1, 1)
+            changeMode(1)
             assertEquals(TeslaHttpMode.VPN, TeslaHttpCompatibility.config(activity).mode)
-            assertFalse(all(activity).filterIsInstance<MaterialButton>().any { it.text.toString() == "请求 Root 权限" })
-            enable(activity).isChecked = true
+            compose.onNodeWithText("请求 Root 权限").assertDoesNotExist()
+            enable()
             val consent = shadowOf(activity).nextStartedActivity
             assertEquals("wheelplay.test.VPN_CONSENT", consent.action)
             assertFalse(TeslaHttpCompatibility.config(activity).enabled)
@@ -70,27 +87,30 @@ class TeslaVpnSettingsUiTest {
             assertEquals(0, rootRequests)
         } finally {
             RootAccess.authorize = original
-            controller.pause().stop().destroy(); WebSession.stop()
+            controller.pause().stop().destroy()
+            WebSession.stop()
         }
     }
 
-    @Test fun acceptedConsentEnablesVpnAndSwitchingModesTurnsItOff() {
+    @Test
+    fun acceptedConsentEnablesVpnAndSwitchingModesTurnsItOff() {
         val context = RuntimeEnvironment.getApplication()
         TeslaHttpCompatibility.save(context, TeslaHttpConfig(mode = TeslaHttpMode.VPN))
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         try {
             openSettings(activity)
-            enable(activity).isChecked = true
+            enable()
             val consent = shadowOf(activity).nextStartedActivity
             shadowOf(activity).receiveResult(consent, Activity.RESULT_OK, null)
             shadowOf(android.os.Looper.getMainLooper()).idle()
             assertTrue(TeslaHttpCompatibility.config(activity).enabled)
-            all(activity).single { it.contentDescription?.toString()?.startsWith("连接方案，") == true }.performClick()
-            val dialog = ShadowDialog.getLatestDialog() as AlertDialog
-            dialog.listView.performItemClick(dialog.listView.getChildAt(0), 0, 0)
+            changeMode(0)
             assertEquals(TeslaHttpMode.ROOT, TeslaHttpCompatibility.config(activity).mode)
             assertFalse(TeslaHttpCompatibility.config(activity).enabled)
-        } finally { controller.pause().stop().destroy(); WebSession.stop() }
+        } finally {
+            controller.pause().stop().destroy()
+            WebSession.stop()
+        }
     }
 }

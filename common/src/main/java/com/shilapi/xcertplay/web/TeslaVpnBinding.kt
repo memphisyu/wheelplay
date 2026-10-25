@@ -5,9 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import com.shilapi.xcertplay.i18n.*
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.network.TeslaHttpMode
 import com.shilapi.xcertplay.network.TeslaHttpStatus
+import com.shilapi.xcertplay.shared.R as UiR
 
 /** Main-thread Web owner. Its binding keeps the VPN alive independently of CarPlayController. */
 internal class TeslaVpnBinding {
@@ -20,26 +22,44 @@ internal class TeslaVpnBinding {
     var status = TeslaHttpStatus(mode = TeslaHttpMode.VPN)
         private set
 
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            if (!bound) return
-            service = (binder as? CarPlayVpnService.LocalBinder)?.service
-            if (service == null) failure = "无法连接免 Root VPN 服务"
-            updateService()
+    private val connection =
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                if (!bound) return
+                service = (binder as? CarPlayVpnService.LocalBinder)?.service
+                if (service == null)
+                    failure =
+                        (context?.getString(
+                            UiR.string.ui_could_not_connect_to_the_rootless_vpn_service
+                        ) ?: "")
+                updateService()
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                service = null
+                status =
+                    TeslaHttpStatus(
+                        error =
+                            (context?.getString(
+                                UiR.string
+                                    .ui_vpn_service_disconnected_waiting_for_system_recovery_you_can
+                            ) ?: ""),
+                        mode = TeslaHttpMode.VPN,
+                    )
+            }
+
+            override fun onBindingDied(name: ComponentName) {
+                val requestedAddress = address
+                val owner = context
+                stop()
+                address = requestedAddress
+                failure =
+                    (owner?.getString(UiR.string.ui_vpn_service_binding_lost_retry_manually) ?: "")
+                status = TeslaHttpStatus(error = failure, mode = TeslaHttpMode.VPN)
+            }
+
+            override fun onNullBinding(name: ComponentName) = onBindingDied(name)
         }
-        override fun onServiceDisconnected(name: ComponentName) {
-            service = null
-            status = TeslaHttpStatus(error = "VPN 服务已断开，正在等待系统恢复；也可手动重试", mode = TeslaHttpMode.VPN)
-        }
-        override fun onBindingDied(name: ComponentName) {
-            val requestedAddress = address
-            stop()
-            address = requestedAddress
-            failure = "VPN 服务绑定失效，请手动重试"
-            status = TeslaHttpStatus(error = failure, mode = TeslaHttpMode.VPN)
-        }
-        override fun onNullBinding(name: ComponentName) = onBindingDied(name)
-    }
 
     fun retry() {
         retryPending = true
@@ -47,39 +67,66 @@ internal class TeslaVpnBinding {
     }
 
     fun reconcile(owner: Context?, requestedAddress: String?) {
-        if (owner == null || requestedAddress == null) { stop(); return }
+        if (owner == null || requestedAddress == null) {
+            stop()
+            return
+        }
+        context = owner.applicationContext
         if (address != requestedAddress) failure = null
         address = requestedAddress
         try {
-            failure?.let { status = TeslaHttpStatus(error = it, mode = TeslaHttpMode.VPN); return }
+            failure?.let {
+                status = TeslaHttpStatus(error = it, mode = TeslaHttpMode.VPN)
+                return
+            }
             if (!bound) {
                 // prepare() can switch VPN ownership when previously authorized. Check only
                 // on an initial start or explicit retry, never on every reconciliation tick.
                 if (CarPlayVpnService.prepare(owner) != null) {
-                    failure = "请在设置中授权 Tesla VPN 后重试"
+                    failure =
+                        (context?.getString(
+                            UiR.string.ui_authorize_tesla_vpn_in_settings_and_try_again
+                        ) ?: "")
                     status = TeslaHttpStatus(error = failure, mode = TeslaHttpMode.VPN)
                     return
                 }
                 context = owner.applicationContext
                 bound = true
-                if (!context!!.bindService(Intent(context, CarPlayVpnService::class.java), connection, Context.BIND_AUTO_CREATE)) {
+                if (
+                    !context!!.bindService(
+                        Intent(context, CarPlayVpnService::class.java),
+                        connection,
+                        Context.BIND_AUTO_CREATE,
+                    )
+                ) {
                     bound = false
-                    failure = "无法绑定免 Root VPN 服务，请手动重试"
+                    failure =
+                        (context?.getString(
+                            UiR.string.ui_could_not_bind_the_rootless_vpn_service_retry_manually
+                        ) ?: "")
                 }
             }
             updateService()
         } catch (error: Exception) {
             stop()
             address = requestedAddress
-            failure = error.message ?: "免 Root VPN 启动失败"
+            failure = error.userMessage(owner)
             status = TeslaHttpStatus(error = failure, mode = TeslaHttpMode.VPN)
         }
     }
 
     private fun updateService() {
         val current = service
-        status = if (current == null) TeslaHttpStatus(error = failure ?: "正在连接免 Root VPN 服务…", mode = TeslaHttpMode.VPN)
-        else current.setTeslaAddress(address, retryPending).also { retryPending = false }
+        status =
+            if (current == null)
+                TeslaHttpStatus(
+                    error =
+                        failure
+                            ?: (context?.getString(UiR.string.ui_connecting_to_rootless_vpn_service)
+                                ?: ""),
+                    mode = TeslaHttpMode.VPN,
+                )
+            else current.setTeslaAddress(address, retryPending).also { retryPending = false }
     }
 
     fun stop() {

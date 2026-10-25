@@ -1,3 +1,5 @@
+import { t } from './text.js';
+import { createDesktopInput } from './desktop-input.js';
 // A surface inversely scaled inside the visual viewport cancels browser zoom.
 // Its bounding rectangle remains in the same CSS coordinates as pointer events.
 export function unzoomedDisplayRect(rect, visual) {
@@ -95,7 +97,7 @@ export function createPresentationController({
     status(meta) {
       if (!accept(meta)) return false;
       // Compatibility with servers predating versioned media packets.
-      if (videoEpoch === null && frame && (meta.width !== frame.width || meta.height !== frame.height)) {
+      if (videoEpoch === null && frame && frame.transport !== 'rtc' && (meta.width !== frame.width || meta.height !== frame.height)) {
         revision++; invalid = false;
       }
       source = meta.sourceState || (meta.streaming ? 'ready' : 'recovering');
@@ -104,7 +106,7 @@ export function createPresentationController({
     },
     present(meta, width, height, transport, expectedRevision = null) {
       if (!accept(meta) || source === 'stopped' || expectedRevision !== null && expectedRevision !== revision) return false;
-      frame = { width, height, transport, revision }; invalid = false;
+      frame = { width, height, transport, revision, mime: meta.mime }; invalid = false;
       if (videoEpoch === null) { source = 'ready'; inputReady = true; }
       publish(); return true;
     },
@@ -121,54 +123,95 @@ export function createPresentationController({
   };
 }
 
-// V2 JPEGs have a 36-byte little-endian header. PCM has a different magic.
+// V3 appends the negotiated image format to the v2 header. PCM has a different magic.
 export function decodeVideoPacket(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 4) return null;
   const view = new DataView(buffer);
-  if (view.getUint32(0, true) !== 0x32565057) return null;
-  if (buffer.byteLength <= 36) throw new Error('Truncated video packet');
+  const magic = view.getUint32(0, true), protocol = magic === 0x33565057 ? 3 : magic === 0x32565057 ? 2 : null;
+  if (!protocol) return null;
+  const headerBytes = protocol === 3 ? 40 : 36;
+  if (buffer.byteLength <= headerBytes) throw new Error('Truncated video packet');
   const packet = { sessionId: view.getFloat64(4, true), videoEpoch: view.getFloat64(12, true),
     sequence: view.getFloat64(20, true), width: view.getUint32(28, true), height: view.getUint32(32, true) };
   if (![packet.sessionId, packet.videoEpoch, packet.sequence].every(value => Number.isSafeInteger(value) && value >= 0) ||
       packet.width < 1 || packet.height < 1) throw new Error('Invalid video packet');
-  return { ...packet, jpeg: buffer.slice(36) };
+  const format = protocol === 3 ? view.getUint32(36, true) : 1;
+  if (![1, 2].includes(format)) throw new Error('Invalid image format');
+  return { ...packet, protocol, mime: format === 2 ? 'image/webp' : 'image/jpeg', jpeg: buffer.slice(headerBytes) };
 }
 
-// Decode into the hidden image and commit the image and geometry together.
+export function probeWebp({ createImage = () => new Image(), schedule = setTimeout, cancel = clearTimeout,
+  createUrl = data => URL.createObjectURL(data), revokeUrl = url => URL.revokeObjectURL(url),
+} = {}) {
+  return new Promise(resolve => {
+    let image, url = null, timer = null, finished = false;
+    const finish = supported => {
+      if (finished) return; finished = true; cancel(timer);
+      if (image) { image.onload = image.onerror = null; image.removeAttribute('src'); }
+      if (url !== null) revokeUrl(url);
+      resolve(supported);
+    };
+    try {
+      image = createImage(); timer = schedule(() => finish(false), 1500);
+      image.onload = () => finish(image.naturalWidth === 2 && image.naturalHeight === 2);
+      image.onerror = () => finish(false);
+      // The Android page allows blob: images but deliberately blocks data: URLs.
+      // This is the same 2x2 WebP fixture used by the capability probe.
+      url = createUrl(new Blob([new Uint8Array([
+        82, 73, 70, 70, 60, 0, 0, 0, 87, 69, 66, 80, 86, 80, 56, 32, 48, 0, 0, 0,
+        208, 1, 0, 157, 1, 42, 2, 0, 2, 0, 2, 0, 52, 37, 160, 2, 116, 186, 1, 248,
+        0, 3, 176, 0, 254, 240, 196, 11, 255, 32, 185, 97, 117, 200, 215, 255, 32,
+        63, 228, 7, 252, 128, 255, 248, 242, 0, 0, 0,
+      ])], { type: 'image/webp' }));
+      image.src = url;
+    } catch (_) { finish(false); }
+  });
+}
+
+// At most two decodes plus the displayed frame. Newer commits retire older work.
 export function createJpegPresenter(images, { onFrame, onError = () => {},
   createUrl = data => URL.createObjectURL(data), revokeUrl = url => URL.revokeObjectURL(url),
 } = {}) {
-  let front = null, pending = null, pendingDone = null, generation = 0;
-  const urls = new Map();
+  let front = null, generation = 0, nextOrder = 0, committedOrder = 0;
+  const urls = new Map(), pending = new Map();
   function discard(image) {
     image.onload = image.onerror = null; image.removeAttribute('src'); image.hidden = true;
     if (urls.has(image)) revokeUrl(urls.get(image)); urls.delete(image);
   }
+  function retire(image) {
+    const work = pending.get(image); if (!work) return;
+    pending.delete(image); discard(image); work.done();
+  }
   function cancelPending() {
-    generation++; if (pending) discard(pending); pending = null;
-    const done = pendingDone; pendingDone = null; if (done) done();
+    generation++;
+    for (const image of [...pending.keys()]) retire(image);
   }
   return {
     load(data, meta, valid, done) {
-      cancelPending();
-      const image = images.find(item => item !== front), token = generation;
-      pending = image; pendingDone = done; image.hidden = true;
+      let image = images.find(item => item !== front && !pending.has(item));
+      if (!image || pending.size >= Math.min(2, images.length - 1)) {
+        image = pending.keys().next().value; retire(image);
+      }
+      const work = { done, order: ++nextOrder }, token = generation;
+      pending.set(image, work); image.hidden = true;
       const url = createUrl(data); urls.set(image, url);
       image.onload = () => {
-        if (token !== generation || pending !== image) return;
-        pending = null; pendingDone = null; image.onload = image.onerror = null;
-        if (!valid() || !image.naturalWidth || !image.naturalHeight) { discard(image); done(); return; }
+        if (token !== generation || pending.get(image) !== work) return;
+        pending.delete(image); image.onload = image.onerror = null;
+        if (work.order <= committedOrder || !valid() || !image.naturalWidth || !image.naturalHeight) { discard(image); done(); return; }
         const previous = front;
         const accepted = onFrame(meta, image.naturalWidth, image.naturalHeight);
         if (token !== generation) { done(); return; }
         if (accepted === false) { discard(image); done(); return; }
+        committedOrder = work.order;
         front = image; image.hidden = false;
         if (previous) discard(previous);
+        for (const [other, older] of [...pending]) if (older.order < work.order) retire(other);
         done();
       };
       image.onerror = () => {
-        if (token !== generation) return;
-        pending = null; pendingDone = null; discard(image); done(); onError();
+        if (token !== generation || pending.get(image) !== work) return;
+        pending.delete(image); discard(image); done(); onError(meta);
       };
       image.src = url;
     },
@@ -184,31 +227,35 @@ export function createJpegPresenter(images, { onFrame, onError = () => {},
 export function createControlOutbox(socket, {
   schedule = setTimeout, cancel = clearTimeout, now = () => Date.now(), onFailure = () => socket.close(),
 } = {}) {
-  const touches = [];
+  const touches = [], imageAcks = new Map();
   const signals = [];
-  let ack = null, audioAck = null, audioReady = null, ping = null, feedback = null, viewport = null, timer = null, blockedSince = null, closed = false;
+  let ack = null, audioAck = null, audioReady = null, ping = null, feedback = null, viewport = null, locationFix = null, timer = null, blockedSince = null, closed = false;
   const close = () => {
     closed = true; cancel(timer); timer = null;
-    ack = null; audioAck = null; audioReady = null; ping = null; feedback = null; viewport = null; touches.length = 0; signals.length = 0;
+    ack = null; audioAck = null; audioReady = null; ping = null; feedback = null; viewport = null; locationFix = null; touches.length = 0; signals.length = 0;
+    imageAcks.clear();
   };
   const fail = () => { close(); onFailure(); };
   const flush = () => {
     if (closed) return;
     if (socket.readyState !== 1) { close(); return; }
     try {
-      while ((ack || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) && socket.bufferedAmount < 8192) {
-        if (ack) { socket.send(ack); ack = null; }
+      while ((ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || locationFix || feedback || ping) && socket.bufferedAmount < 8192) {
+        if (imageAcks.size) {
+          const [key, json] = imageAcks.entries().next().value; socket.send(json); imageAcks.delete(key);
+        } else if (ack) { socket.send(ack); ack = null; }
         else if (audioAck) { socket.send(audioAck); audioAck = null; }
         else if (audioReady) { socket.send(audioReady); audioReady = null; }
         else if (touches.length) { socket.send(touches[0].json); touches.shift(); }
         else if (signals.length) { socket.send(signals[0]); signals.shift(); }
         else if (viewport) { socket.send(viewport); viewport = null; }
+        else if (locationFix) { socket.send(locationFix); locationFix = null; }
         else if (feedback) { socket.send(feedback); feedback = null; }
         else { socket.send(ping); ping = null; }
         blockedSince = null;
       }
     } catch (_) { fail(); return; }
-    if (ack || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) {
+    if (ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || locationFix || feedback || ping) {
       if (blockedSince === null) blockedSince = now();
       if (now() - blockedSince >= 1500) { fail(); return; }
       if (timer === null) timer = schedule(() => { timer = null; flush(); }, 10);
@@ -220,20 +267,26 @@ export function createControlOutbox(socket, {
     send(data, kind = 'edge') {
       if (closed || socket.readyState !== 1) return false;
       const json = JSON.stringify(data);
-      if (data.type === 'ack') ack = json;
+      if (data.type === 'ack' && Number.isSafeInteger(data.sequence)) {
+        const key = `${data.sessionId}/${data.videoEpoch}/${data.sequence}`;
+        if (!imageAcks.has(key) && imageAcks.size >= 8) { fail(); return false; }
+        imageAcks.set(key, json);
+      } else if (data.type === 'ack') ack = json;
       else if (data.type === 'audio-ack') audioAck = json;
       else if (data.type === 'audio-ready') audioReady = json;
       else if (data.type === 'ping') ping = json;
       else if (data.type === 'rtc-feedback') feedback = json;
       else if (data.type === 'viewport') viewport = json;
-      else if (data.type === 'touch') {
+      else if (data.type === 'location') locationFix = json;
+      else if (data.type === 'touch' || data.type === 'input') {
         const tail = touches[touches.length - 1];
         // Only consecutive moves may be replaced; never cross a down/up/release boundary.
-        if (kind === 'move' && tail && tail.kind === 'move') tail.json = json;
-        else if (touches.length < 64) touches.push({ kind, json });
+        if (kind === 'move' && tail && tail.kind === 'move' && tail.type === data.type && tail.eventKind === data.kind) tail.json = json;
+        else if (touches.length < 64) touches.push({ kind, json, type: data.type, eventKind: data.kind });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'media-command', 'artwork-request'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
+        if (data.type.startsWith('location-')) locationFix = null;
         signals.push(json);
       } else return false;
       flush();
@@ -247,7 +300,7 @@ export function createControlOutbox(socket, {
 // suppress video frame callbacks on embedded browsers. drawImage copies decoded
 // frames directly; it does not read pixels back through getImageData.
 export function createVideoCanvasRenderer(video, canvas, {
-  onFrame = () => {}, onError = () => {},
+  onFrame = () => {}, onDraw = () => {}, onError = () => {},
   requestFrame = callback => requestAnimationFrame(callback), cancelFrame = id => cancelAnimationFrame(id),
   now = () => performance.now(),
 } = {}) {
@@ -279,6 +332,7 @@ export function createVideoCanvasRenderer(video, canvas, {
       if (!resized && key !== null && key === lastFrameKey) return;
       if (resized) { canvas.width = width; canvas.height = height; }
       context.drawImage(video, 0, 0, width, height);
+      onDraw();
       lastFrameKey = key;
       const first = canvas.hidden;
       canvas.hidden = false;
@@ -318,10 +372,137 @@ function isRtcErrorRetryable(error) {
   return !['NotAllowedError', 'NotSupportedError'].includes(error?.name);
 }
 
+export function videoRendererPreference(value, legacy) {
+  return ['native', 'video-canvas', 'track-canvas'].includes(value) ? value : legacy === 'true' ? 'video-canvas' : 'native';
+}
+
+// A reader owns each VideoFrame until it is drawn or discarded, including after stop.
+export function createTrackCanvasRenderer(canvas, {
+  onReady = () => {}, onResize = () => {}, onError = () => {},
+  createProcessor = init => new MediaStreamTrackProcessor(init),
+} = {}) {
+  let generation = 0, reader = null, running = false, width = 0, height = 0, renderedFrames = 0;
+  function stop() {
+    generation++; running = false;
+    const old = reader; reader = null;
+    if (old) { try { Promise.resolve(old.cancel()).catch(() => {}); } catch (_) {} }
+    canvas.hidden = true; canvas.width = canvas.height = 0;
+  }
+  async function consume(activeReader, context, token) {
+    const current = () => running && generation === token;
+    try {
+      while (current()) {
+        const { value: frame, done } = await activeReader.read();
+        try {
+          if (!current()) break;
+          if (done) throw new Error('track-ended');
+          if (!frame || !(frame.displayWidth > 0) || !(frame.displayHeight > 0)) continue;
+          const resized = width !== frame.displayWidth || height !== frame.displayHeight;
+          if (resized) { canvas.width = frame.displayWidth; canvas.height = frame.displayHeight; }
+          context.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight);
+          width = frame.displayWidth; height = frame.displayHeight; renderedFrames++;
+          canvas.hidden = false;
+          if (renderedFrames === 1) onReady({ width, height });
+          else if (resized) onResize({ width, height });
+        } finally { frame?.close(); }
+      }
+    } catch (error) {
+      if (current()) {
+        // Let the receiver freeze the last picture before stop clears the canvas.
+        try { onError(error.message === 'track-ended' ? 'track-ended' : 'renderer-error', isRtcErrorRetryable(error)); }
+        finally { if (generation === token) stop(); }
+      }
+    } finally {
+      try { activeReader.releaseLock(); } catch (_) {}
+      if (reader === activeReader) reader = null;
+    }
+  }
+  return {
+    start(track) {
+      stop(); width = height = renderedFrames = 0;
+      try {
+        const context = canvas.getContext('2d', { alpha: false });
+        if (!context) throw Object.assign(new Error('Canvas 2D unavailable'), { name: 'NotSupportedError' });
+        reader = createProcessor({ track, maxBufferSize: 1 }).readable.getReader();
+        running = true;
+        void consume(reader, context, generation);
+      } catch (error) { stop(); onError('renderer-error', isRtcErrorRetryable(error)); }
+    },
+    stop,
+    snapshot: () => ({ width, height, renderedFrames, presentedFrames: null }),
+  };
+}
+
+// Video elements exist only for the two legacy renderers, and belong to one offer.
+export function createVideoRenderer(mode, canvas, {
+  createVideo, onReady = () => {}, onResize = () => {}, onError = () => {},
+} = {}) {
+  let video = null, copy = null, frameCallback = null, generation = 0, ready = false, started = false;
+  let width = 0, height = 0, presentedFrames = null, renderedFrames = mode === 'video-canvas' ? 0 : null;
+  function report(w, h) {
+    if (!video || !w || !h) return;
+    const resized = width !== w || height !== h;
+    width = w; height = h;
+    if (!ready) { ready = true; if (!copy) video.hidden = false; onReady({ width, height }); }
+    else if (resized) onResize({ width, height });
+  }
+  function stop() {
+    generation++;
+    if (copy) copy.stop(); copy = null;
+    if (video) {
+      if (frameCallback !== null) video.cancelVideoFrameCallback?.(frameCallback);
+      video.onloadeddata = video.onerror = video.onresize = null;
+      video.srcObject = null; video.remove(); video = null;
+    }
+    frameCallback = null;
+  }
+  return {
+    start(track, streams = []) {
+      stop(); ready = started = false; width = height = 0; presentedFrames = null;
+      renderedFrames = mode === 'video-canvas' ? 0 : null;
+      try {
+        video = createVideo();
+        const token = generation, current = () => video !== null && token === generation;
+        if (mode === 'video-canvas') {
+          copy = createVideoCanvasRenderer(video, canvas, {
+            onDraw: () => { renderedFrames++; }, onFrame: report,
+            onError: error => { if (current()) onError('renderer-error', isRtcErrorRetryable(error)); },
+          });
+          copy.prepare();
+        }
+        const displayed = () => {
+          if (!current() || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+          if (copy) { if (!started) { started = true; copy.start(); } }
+          else report(video.videoWidth, video.videoHeight);
+        };
+        video.onloadeddata = displayed;
+        video.onresize = () => { if (current() && !copy) displayed(); };
+        video.onerror = () => { if (current()) onError('renderer-error'); };
+        if (video.requestVideoFrameCallback) {
+          let firstPresented = null;
+          presentedFrames = 0;
+          const observe = (_, metadata) => {
+            if (!current()) return;
+            if (firstPresented === null) firstPresented = metadata.presentedFrames;
+            presentedFrames = metadata.presentedFrames - firstPresented;
+            if (!copy) displayed();
+            if (current()) frameCallback = video.requestVideoFrameCallback(observe);
+          };
+          frameCallback = video.requestVideoFrameCallback(observe);
+        }
+        video.srcObject = streams[0] || new MediaStream([track]);
+        Promise.resolve(video.play()).then(displayed).catch(error => { if (current()) onError('renderer-error', isRtcErrorRetryable(error)); });
+      } catch (error) { onError('renderer-error', isRtcErrorRetryable(error)); }
+    },
+    stop,
+    snapshot: () => ({ width, height, presentedFrames, renderedFrames }),
+  };
+}
+
 // Video WebRTC remains receive-only. Browser audio uses the paired WebSocket.
-export function createRtcReceiver(video, {
+export function createRtcReceiver(createRenderer, {
   send, onReady = () => {}, onStop = () => {}, onStats = () => {},
-  onTrack = () => {}, onReset = () => {},
+  onResize = () => {}, onReset = () => {},
   createPeer = () => new RTCPeerConnection({ iceServers: [] }),
   supportsCodec = codec => {
     if (typeof RTCRtpReceiver === 'undefined' || !RTCRtpReceiver.getCapabilities) return true;
@@ -330,7 +511,7 @@ export function createRtcReceiver(video, {
   },
   schedule = setTimeout, cancel = clearTimeout, now = () => Date.now(),
 } = {}) {
-  let frameCallback = null, presented = 0, previousStats = null;
+  let renderer = null, track = null, previousStats = null, renderStalledSince = null, lastRendered = 0;
   let codec = 'H264';
   let peer = null, id = null, generation = 0, timeout = null, statsTimer = null, ready = false;
   let lastDecoded = 0, sent = 0, lastSentAt = 0, sentAtLastProgress = 0;
@@ -339,37 +520,39 @@ export function createRtcReceiver(video, {
     generation++; cancel(timeout); cancel(statsTimer); cancel(disconnectTimer);
     timeout = null; statsTimer = null; disconnectTimer = null;
     stalledSince = null; statsFailedSince = null;
+    renderStalledSince = null;
     const old = peer; peer = null; ready = false; id = null;
-    if (frameCallback !== null && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(frameCallback);
-    frameCallback = null; presented = 0; previousStats = null;
-    video.onloadeddata = null; video.onerror = null;
-    if (old) { old.ontrack = null; old.onconnectionstatechange = null; old.close(); }
     onReset();
-    video.srcObject = null; video.hidden = true;
+    if (renderer) renderer.stop(); renderer = null;
+    if (track) { track.onended = null; track.stop(); track = null; }
+    previousStats = null; lastRendered = 0;
+    if (old) { old.ontrack = old.onconnectionstatechange = old.onicegatheringstatechange = null; old.close(); }
   }
-  function fallback(retryable = true) {
+  function fallback(reason = 'connection-failed', retryable = true) {
     const current = id;
-    close(); onStop();
-    if (current !== null) send({ type: 'rtc-fallback', id: current, ...(retryable ? {} : { retryable: false }) });
+    if (current === null) return;
+    close(); onStop(reason);
+    send({ type: 'rtc-fallback', id: current, ...(retryable ? {} : { retryable: false }) });
   }
   async function receive(message) {
     if (message.type === 'rtc-stop') {
-      if (message.id === id) { close(); onStop(); }
+      if (message.id === id) { close(); onStop('server-stop'); }
       return;
     }
     if (message.type !== 'rtc-offer') return;
     close(); id = message.id; codec = message.codec === 'H265' ? 'H265' : 'H264';
     recoveryGraceMs = [4000, 10000, 30000].includes(message.recoveryGraceMs) ? message.recoveryGraceMs : 10000;
     const token = generation, current = () => generation === token && peer !== null;
-    timeout = schedule(() => { if (generation === token) fallback(); }, Math.max(10000, recoveryGraceMs));
+    timeout = schedule(() => { if (generation === token) fallback('first-frame-timeout'); }, Math.max(10000, recoveryGraceMs));
     try {
-      if (!supportsCodec(codec)) { fallback(false); return; }
+      if (!supportsCodec(codec)) { fallback('codec-unsupported', false); return; }
       const pc = createPeer(); peer = pc;
-      const displayed = () => {
-        if (!current() || ready || !video.videoWidth || video.readyState < 2) return;
+      const displayed = size => {
+        if (!current() || ready || !size.width || !size.height) return;
         ready = true; cancel(timeout); timeout = null;
         lastDecoded = 0; sent = 0; sentAtLastProgress = 0; lastSentAt = now();
-        send({ type: 'rtc-ready', id }); onReady();
+        lastRendered = renderer?.snapshot().renderedFrames ?? 0;
+        send({ type: 'rtc-ready', id }); onReady(size);
         if (current()) statsTimer = schedule(sample, 1000);
       };
       const sample = async () => {
@@ -379,8 +562,16 @@ export function createRtcReceiver(video, {
           if (!current()) return;
           statsFailedSince = null;
           report.forEach(stat => {
+            if (!current()) return;
             if (stat.type !== 'inbound-rtp' || (stat.kind || stat.mediaType) !== 'video') return;
             const decoded = stat.framesDecoded || 0, at = now();
+            const output = renderer.snapshot();
+            const presented = output.presentedFrames;
+            const rendered = output.renderedFrames;
+            if (rendered === null || rendered !== lastRendered || sent <= sentAtLastProgress || at - lastSentAt >= 2000) {
+              renderStalledSince = null;
+            } else if (renderStalledSince === null) renderStalledSince = at;
+            lastRendered = rendered;
             if (decoded !== lastDecoded || sent <= sentAtLastProgress || at - lastSentAt >= 2000) {
               stalledSince = null; sentAtLastProgress = sent;
             } else if (stalledSince === null) stalledSince = at;
@@ -396,7 +587,9 @@ export function createRtcReceiver(video, {
             });
             const metrics = {
               receivedFps: rate('framesReceived'), decodedFps: rate('framesDecoded'),
-              presentedFps: video.requestVideoFrameCallback && elapsed ? Math.max(0, presented - previous.presented) * 1000 / elapsed : null,
+              presentedFps: presented !== null && previous?.presented !== null && elapsed ? Math.max(0, presented - previous.presented) * 1000 / elapsed : null,
+              renderedFps: rendered !== null && previous?.rendered !== null && elapsed ? Math.max(0, rendered - previous.rendered) * 1000 / elapsed : null,
+              renderedFrames: rendered,
               decodeMs: averageMs('totalDecodeTime', 'framesDecoded'),
               jitterBufferMs: averageMs('jitterBufferDelay', 'jitterBufferEmittedCount'),
               processingMs: averageMs('totalProcessingDelay', 'framesDecoded'),
@@ -405,21 +598,28 @@ export function createRtcReceiver(video, {
               rttMs,
             };
             onStats(metrics.presentedFps ?? metrics.decodedFps, metrics);
+            if (!current()) return;
             send({ type: 'rtc-feedback', id, packets: Math.max(0, stat.packetsReceived || 0),
               lost: Math.max(0, stat.packetsLost || 0), decoded, nack: Math.max(0, stat.nackCount || 0), rttMs });
-            previousStats = { at, stat, presented };
+            previousStats = { at, stat, presented, rendered };
             lastDecoded = decoded;
             // Static CarPlay screens legitimately stop producing frames.
-            if (stalledSince !== null && at - stalledSince >= recoveryGraceMs) fallback();
+            if (stalledSince !== null && at - stalledSince >= recoveryGraceMs) fallback('decode-stalled');
+            else if (renderStalledSince !== null && at - renderStalledSince >= recoveryGraceMs) fallback('render-stalled');
           });
         } catch (_) {
           if (current()) {
             if (statsFailedSince === null) statsFailedSince = now();
-            if (now() - statsFailedSince >= recoveryGraceMs) fallback();
+            if (now() - statsFailedSince >= recoveryGraceMs) fallback('stats-unavailable');
           }
         }
         if (current()) statsTimer = schedule(sample, 1000);
       };
+      renderer = createRenderer({
+        onReady: displayed,
+        onResize: size => { if (current()) onResize(size); },
+        onError: (reason, retryable) => { if (current()) fallback(reason, retryable); },
+      });
       pc.onconnectionstatechange = () => {
         if (!current()) return;
         if (['failed', 'closed'].includes(pc.connectionState)) { fallback(); return; }
@@ -436,30 +636,16 @@ export function createRtcReceiver(video, {
       };
       pc.ontrack = event => {
         if (!current()) return;
-        video.onloadeddata = displayed;
-        video.onerror = () => { if (current()) fallback(); };
-        if (video.requestVideoFrameCallback && frameCallback === null) {
-          let firstPresented = null;
-          const observe = (_, metadata) => {
-            if (!current()) return;
-            if (firstPresented === null) firstPresented = metadata.presentedFrames;
-            presented = metadata.presentedFrames - firstPresented;
-            frameCallback = video.requestVideoFrameCallback(observe);
-          };
-          frameCallback = video.requestVideoFrameCallback(observe);
-        }
-        video.srcObject = event.streams[0] || new MediaStream([event.track]);
-        onTrack();
-        if (!current()) return;
-        video.play().then(displayed).catch(error => {
-          if (current()) fallback(isRtcErrorRetryable(error));
-        });
+        if (track) { fallback('track-replaced'); return; }
+        track = event.track;
+        track.onended = () => { if (current()) fallback('track-ended'); };
+        renderer.start(track, event.streams);
       };
       await pc.setRemoteDescription({ type: 'offer', sdp: message.sdp });
       if (!current()) return;
       const answer = await pc.createAnswer();
       if (!current()) return;
-      if (/^m=video 0(?: |\r?$)/m.test(answer.sdp)) { fallback(false); return; }
+      if (/^m=video 0(?: |\r?$)/m.test(answer.sdp)) { fallback('codec-unsupported', false); return; }
       // Use the browser as DTLS server: Mbed TLS 3.6 cannot reassemble a fragmented
       // ClientHello from newer Chrome versions. Passive is a standard answer role.
       await pc.setLocalDescription({ type: answer.type, sdp: answer.sdp.replace(/a=setup:active/g, 'a=setup:passive') });
@@ -472,14 +658,15 @@ export function createRtcReceiver(video, {
       if (pc.iceGatheringState === 'complete') answerReady();
       else pc.onicegatheringstatechange = answerReady;
     } catch (error) {
-      if (generation === token) fallback(isRtcErrorRetryable(error));
+      if (generation === token) fallback(error.message === 'processor-unsupported' ? error.message : 'connection-failed',
+        error.message !== 'processor-unsupported' && isRtcErrorRetryable(error));
     }
   }
   return { receive, close, fallback, get active() { return ready; }, get codec() { return codec; },
-    get recovering() { return ready && (disconnectTimer !== null || stalledSince !== null || statsFailedSince !== null); },
+    get recovering() { return ready && (disconnectTimer !== null || stalledSince !== null || renderStalledSince !== null || statsFailedSince !== null); },
     progress(count) {
       if (count > sent) {
-        if (now() - lastSentAt >= 2000) stalledSince = null;
+        if (now() - lastSentAt >= 2000) { stalledSince = null; renderStalledSince = null; }
         lastSentAt = now();
       }
       sent = count;
@@ -487,21 +674,24 @@ export function createRtcReceiver(video, {
   };
 }
 
-import { createBrowserMedia } from './browser-media.js';
-import { createMediaProbe, mediaCapabilities } from './media-probe.js';
 import { createBrowserAudio } from './browser-audio.js';
+import { createBrowserLocation } from './browser-location.js';
+import { createXpengDiagnostics } from './xpeng-diagnostics.js';
+import { createBrowserMediaSession } from './browser-media-session.js';
 
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
   const screen = $('screen');
-  const screens = [screen, $('screen-next')];
+  const screens = [screen, $('screen-next'), $('screen-third')];
   const heldFrame = $('held-frame');
-  const video = $('video');
+  let video = null;
   const canvas = $('video-canvas');
   const display = $('display');
   const touchSurface = $('touch-surface');
   // Read-only diagnostic snapshots; counters never include pairing credentials or video payloads.
-  const performanceStats = { source: null, transport: null, receiver: null };
+  const rendererStats = { selectedMode: 'native', activeMode: 'waiting', renderedFps: null, renderedFrames: null, fallbackReason: null };
+  const performanceStats = { source: null, transport: null, receiver: null, image: null, presentation: rendererStats };
+  const webpSupport = probeWebp();
   Object.defineProperty(window, 'wheelplayStats', { configurable: true, get: () => JSON.parse(JSON.stringify(performanceStats)) });
   let rtc = null, rtcRequested = false, rtcFps = null;
   let socket = null, stopped = true, paired = false, retry = null, attempts = 0;
@@ -509,19 +699,18 @@ if (typeof document !== 'undefined') {
   let heartbeat = null, movePending = false, moveGeneration = 0, outbox = null;
   let authGeneration = 0, deviceCredential = null, storageAvailable = false;
   let launchPresentation = null;
+  const locationOption = $('browser-location');
+  locationOption.checked = false; // Never inherit form restoration or grant consent through storage.
+  const browserLocation = createBrowserLocation({ send: data => send(data), onState(enabled, message, key) {
+    locationOption.checked = enabled;
+    $('location-status').textContent = message;
+    $('location-message').textContent = message;
+    $('location-message').hidden = !message || ['web_location_ready', 'web_location_active'].includes(key);
+  } });
+  locationOption.addEventListener('change', () => { void browserLocation.setEnabled(locationOption.checked); });
   const devicePreference = 'wheelplay.browserDevice';
   let pairingToken = null, qrGeneration = 0, qrTimer = null, qrRequest = null;
   let viewportReportTimer = null, lastViewportSignature = '';
-  const presentation = createPresentationController({ onChange: renderPresentation });
-  const jpeg = createJpegPresenter(screens, {
-    onFrame: (meta, frameWidth, frameHeight) => {
-      if (meta.width && (meta.width !== frameWidth || meta.height !== frameHeight)) return false;
-      if (!presentation.present(meta, frameWidth, frameHeight, 'jpeg', meta.revision)) return false;
-      width = frameWidth; height = frameHeight;
-      clearHeldFrame(); return true;
-    },
-    onError: () => presentation.invalidate('jpeg'),
-  });
   const ignoreZoomOption = $('ignore-browser-zoom');
   const ignoreZoomPreference = 'wheelplay.ignoreBrowserZoom';
   try { ignoreZoomOption.checked = window.localStorage.getItem(ignoreZoomPreference) === 'true'; } catch (_) {}
@@ -544,19 +733,54 @@ if (typeof document !== 'undefined') {
     try { window.localStorage.setItem(ignoreZoomPreference, String(ignoreZoomOption.checked)); } catch (_) {}
     release(); syncDisplayZoom(); scheduleViewportReport();
   });
-  const canvasOption = $('canvas-video');
-  const canvasPreference = 'wheelplay.canvasVideo';
-  try { canvasOption.checked = window.localStorage.getItem(canvasPreference) === 'true'; } catch (_) {}
-  canvasOption.addEventListener('change', () => {
-    try { window.localStorage.setItem(canvasPreference, String(canvasOption.checked)); } catch (_) {}
-  });
-  const canvasRenderer = createVideoCanvasRenderer(video, canvas, {
-    onFrame: (frameWidth, frameHeight) => {
-      if (!presentation.present(rtcMedia, frameWidth, frameHeight, 'rtc', rtcMedia.revision)) return;
-      width = frameWidth; height = frameHeight; jpeg.hide(); clearHeldFrame();
+  const presentation = createPresentationController({ onChange: renderPresentation });
+  const jpeg = createJpegPresenter(screens, {
+    onFrame: (meta, frameWidth, frameHeight) => {
+      if (meta.width && (meta.width !== frameWidth || meta.height !== frameHeight)) return false;
+      if (!presentation.present(meta, frameWidth, frameHeight, 'jpeg', meta.revision)) return false;
+      width = frameWidth; height = frameHeight;
+      clearHeldFrame(); return true;
     },
-    onError: error => { if (rtc) rtc.fallback(isRtcErrorRetryable(error)); },
+    onError: meta => {
+      if (meta.mime === 'image/webp') send({ type: 'image-format', format: 'jpeg' });
+      if (!jpeg.current) presentation.invalidate('jpeg');
+    },
   });
+  const rendererPreference = 'wheelplay.videoRenderer';
+  let selectedMode = 'native';
+  try {
+    selectedMode = videoRendererPreference(window.localStorage.getItem(rendererPreference), window.localStorage.getItem('wheelplay.canvasVideo'));
+    window.localStorage.setItem(rendererPreference, selectedMode);
+  } catch (_) {}
+  let launchMode = selectedMode;
+  const processorSupported = () => typeof MediaStreamTrackProcessor === 'function';
+  function updateRendererOptions() {
+    for (const mode of ['native', 'video-canvas', 'track-canvas']) {
+      $(`renderer-${mode}`).checked = selectedMode === mode;
+      $(`renderer-${mode}-card`).classList.toggle('selected', selectedMode === mode);
+    }
+    $('renderer-hint').hidden = selectedMode !== 'track-canvas' || processorSupported();
+  }
+  for (const mode of ['native', 'video-canvas', 'track-canvas']) {
+    $(`renderer-${mode}`).addEventListener('change', () => {
+      if (!$(`renderer-${mode}`).checked) return;
+      selectedMode = mode; updateRendererOptions();
+      try { window.localStorage.setItem(rendererPreference, mode); } catch (_) {}
+    });
+  }
+  updateRendererOptions();
+  function createLegacyVideo() {
+    video = document.createElement('video');
+    video.id = 'video'; video.autoplay = true; video.muted = true; video.playsInline = true; video.hidden = true;
+    video.setAttribute('disablepictureinpicture', '');
+    video.setAttribute('aria-label', t('web_live_carplay_video'));
+    display.insertBefore(video, canvas); bindSurface(video);
+    return video;
+  }
+  function showRtcSize(size) {
+    if (!presentation.present(rtcMedia, size.width, size.height, 'rtc', rtcMedia.revision)) return;
+    width = size.width; height = size.height; jpeg.cancelPending(); jpeg.hide(); clearHeldFrame();
+  }
   const pairApi = async (path, request = null) => {
     const headers = request?.token ? { 'X-Pair-Token': request.token } :
       request?.code ? { 'X-Pair-Code': request.code } :
@@ -582,26 +806,26 @@ if (typeof document !== 'undefined') {
       if (typeof device.id === 'string' && typeof device.secret === 'string' && device.id.length === 32 && device.secret.length === 32) deviceCredential = device;
     }
   } catch (_) {}
-  function showPairingReady(name = '浏览器已配对') {
+  function showPairingReady(name = t("web_browser_paired")) {
     $('remembered-device').hidden = false;
     $('device-name').textContent = name;
     $('qr-pairing').hidden = true; $('pair-instructions').hidden = true;
     $('code-entry').hidden = true; $('code').required = false; $('code').disabled = true;
-    $('connect-label').textContent = '启动显示';
+    $('connect-label').textContent = t("web_start_display");
     $('connect').disabled = false;
-    $('status').textContent = '已配对 · 等待启动'; $('message').textContent = '';
+    $('status').textContent = t("web_paired_ready_to_start"); $('message').textContent = '';
   }
   function showPairingEntry() {
     $('remembered-device').hidden = true;
     $('qr-pairing').hidden = false; $('pair-instructions').hidden = false;
     $('code-entry').hidden = false; $('code').required = true; $('code').disabled = false;
-    $('connect-label').textContent = '配对并启动显示';
+    $('connect-label').textContent = t("web_pair_start_display");
     $('connect').disabled = false;
   }
   async function preparePairing(token, generation) {
     pairingToken = token;
-    let name = '浏览器已配对';
-    let message = '已配对。选择上方选项后，点击「启动显示」。';
+    let name = t("web_browser_paired");
+    let message = t("web_paired_choose_the_options_above_then_tap_start_display");
     if (storageAvailable) {
       try {
         const device = await pairApi('remember', { token });
@@ -610,9 +834,9 @@ if (typeof document !== 'undefined') {
         window.localStorage.setItem(devicePreference, JSON.stringify(device));
         name = device.name;
       } catch (_) {
-        message = '本次配对成功，但未能记住设备。下次可能需要重新配对；可检查浏览器存储或 App 中的设备数量。';
+        message = t("web_paired_for_this_session_but_the_device_could_not");
       }
-    } else message = '本次配对成功。浏览器无法保存设备，下次仍需配对。';
+    } else message = t("web_paired_for_this_session_this_browser_cannot_remember_the");
     if (generation !== authGeneration) return;
     showPairingReady(name); $('device-status').textContent = message;
   }
@@ -621,24 +845,24 @@ if (typeof document !== 'undefined') {
     stopQr(); pairingToken = null;
     showPairingEntry(); $('connect').disabled = true;
     if (deviceCredential) {
-      $('status').textContent = '正在恢复配对…';
+      $('status').textContent = t("web_restoring_pairing");
       try {
         const result = await pairApi('resume', { device: deviceCredential });
         if (generation !== authGeneration) return;
         pairingToken = result.token;
         showPairingReady(result.name);
-        $('device-status').textContent = '已自动恢复配对。选择上方选项后，点击「启动显示」。';
+        $('device-status').textContent = t("web_pairing_restored_automatically_choose_the_options_above_then_tap");
         return;
       } catch (error) {
         if (generation !== authGeneration) return;
         if (error.status === 401) {
           deviceCredential = null;
           try { window.localStorage.removeItem(devicePreference); } catch (_) {}
-          $('message').textContent = '设备记忆已失效或已被移除，请重新配对。';
+          $('message').textContent = t("web_remembered_device_expired_or_removed_pair_again");
         } else {
-          showPairingReady(deviceCredential.name || '已记住的浏览器');
-          $('status').textContent = '等待恢复配对';
-          $('device-status').textContent = '暂时无法恢复配对，请检查服务和网络后点击「启动显示」重试。';
+          showPairingReady(deviceCredential.name || t("web_remembered_browser"));
+          $('status').textContent = t("web_waiting_to_restore_pairing");
+          $('device-status').textContent = t("web_could_not_restore_pairing_yet_check_the_service_and");
           return;
         }
       }
@@ -651,11 +875,11 @@ if (typeof document !== 'undefined') {
         await preparePairing(result.token, generation); return;
       } catch (_) {
         if (generation !== authGeneration) return;
-        $('message').textContent = '访问链接中的配对码已失效，请重新扫码或输入当前配对码。';
+        $('message').textContent = t("web_the_pairing_code_in_this_link_has_expired_scan");
       }
     }
     if (generation !== authGeneration) return;
-    showPairingEntry(); $('status').textContent = '等待配对'; startQr();
+    showPairingEntry(); $('status').textContent = t("web_waiting_to_pair"); startQr();
   }
   function stopQr(cancel = true) {
     qrGeneration++; clearTimeout(qrTimer);
@@ -666,7 +890,7 @@ if (typeof document !== 'undefined') {
   }
   async function startQr() {
     stopQr(); const generation = qrGeneration;
-    $('qr-status').textContent = '正在生成二维码…';
+    $('qr-status').textContent = t("web_generating_qr_code");
     $('refresh-qr').disabled = true;
     try {
       const request = await pairApi('request');
@@ -678,10 +902,10 @@ if (typeof document !== 'undefined') {
       $('pair-qr').onerror = () => {
         if (generation !== qrGeneration) return;
         $('pair-qr').hidden = true;
-        $('qr-status').textContent = '二维码加载失败，请刷新重试或手动输入配对码。';
+        $('qr-status').textContent = t("web_could_not_load_qr_code_refresh_and_try_again");
       };
       $('pair-qr').src = `/pair/qr?id=${encodeURIComponent(request.id)}&secret=${encodeURIComponent(request.secret)}`;
-      $('qr-status').textContent = '请用服务端 App 扫码并允许连接。二维码两分钟内有效。';
+      $('qr-status').textContent = t("web_scan_with_the_server_app_and_allow_the_connection");
       const expiresAt = Date.now() + request.expiresIn * 1000;
       const poll = async () => {
         try {
@@ -697,26 +921,32 @@ if (typeof document !== 'undefined') {
         } catch (error) {
           if (generation !== qrGeneration) return;
           stopQr();
-          $('qr-status').textContent = error.message === 'expired' ? '二维码已过期，请刷新后重新扫描。' : '暂时无法获取配对状态，请刷新二维码或输入配对码。';
+          $('qr-status').textContent = error.message === 'expired' ? t("web_qr_code_expired_refresh_and_scan_again") : t("web_could_not_check_pairing_status_refresh_the_qr_code");
         }
       };
       qrTimer = setTimeout(poll, 1000);
     } catch (_) {
-      if (generation === qrGeneration) $('qr-status').textContent = '二维码暂不可用，请刷新重试或手动输入配对码。';
+      if (generation === qrGeneration) $('qr-status').textContent = t("web_qr_code_unavailable_refresh_and_try_again_or_enter");
     } finally {
       if (generation === qrGeneration) $('refresh-qr').disabled = false;
     }
   }
   $('refresh-qr').addEventListener('click', startQr);
   const pointers = new Map();
+  let maxTouchContacts = 2;
+  let pointerInput = false, keyboardInput = false;
   const send = (data, kind) => {
-    if (data.type === 'touch' && presentation.current.videoEpoch !== null) {
+    if ((data.type === 'touch' || data.type === 'input') && presentation.current.videoEpoch !== null) {
       const { sessionId, videoEpoch } = presentation.current;
       data = { ...data, sessionId, videoEpoch };
     }
     return outbox ? outbox.send(data, kind) : false;
   };
-  const browserMedia = createBrowserMedia({ send });
+  const desktop = createDesktopInput({ send, pointerEnabled: () => pointerInput,
+    keyboardEnabled: () => keyboardInput, interactive: () => live,
+    point: (event, surface, clamp) => mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height, clamp) });
+  let desktopRevision = presentation.current.revision;
+  const browserMedia = createBrowserMediaSession({ send });
   let audioDiagnostics = {};
   const browserAudio = createBrowserAudio({
     send,
@@ -731,56 +961,8 @@ if (typeof document !== 'undefined') {
       $('audio-message').hidden = !error || !paired;
     },
   });
-  const keyboardEvents = [];
-  const probe = createMediaProbe({ element: $('probe-audio'),
-    onEnter() { browserMedia.suspend(true); browserAudio.setTestMode(true); },
-    onExit() { browserMedia.suspend(false); browserAudio.setTestMode(false); },
-  });
-  function diagnosticSnapshot() {
-    browserMedia.expire();
-    const viewport = display.getBoundingClientRect();
-    return { version: '1.0.2-rc.1', at: new Date().toISOString(),
-      display: { viewportWidth: viewport.width, viewportHeight: viewport.height,
-        devicePixelRatio: window.devicePixelRatio || 1,
-        streamWidth: width, streamHeight: height, hidden: document.hidden },
-      media: browserMedia.diagnostics, audio: audioDiagnostics, probe: probe.snapshot(),
-      capabilities: mediaCapabilities(window, $('probe-audio')), keyboard: keyboardEvents,
-      secure: window.isSecureContext, browser: navigator.userAgent };
-  }
-  function refreshMediaPanel() {
-    if ($('media-test-panel').hidden) return;
-    $('media-test-mode').textContent = probe.active ? '播放器检查模式：以下按钮切换提示音；可同时检查方向盘控制。' : 'CarPlay 控制模式：以下按钮控制 iPhone。SENT 仅表示命令已发送，请观察实际切歌。';
-    $('probe-start').disabled = !paired || probe.active;
-    $('probe-stop').disabled = !probe.active;
-    document.querySelectorAll('[data-media-action]').forEach(button => {
-      button.disabled = !probe.active && (!paired || !audioDiagnostics.playback || !browserMedia.diagnostics.metadata?.available);
-    });
-    $('media-live-output').textContent = JSON.stringify(diagnosticSnapshot(), null, 2);
-  }
-  $('media-diagnostics').addEventListener('click', () => {
-    $('media-test-panel').hidden = !$('media-test-panel').hidden; refreshMediaPanel();
-  });
-  $('media-panel-close').addEventListener('click', () => { $('media-test-panel').hidden = true; });
-  $('probe-start').addEventListener('click', () => { if (paired) probe.start(); refreshMediaPanel(); });
-  $('probe-stop').addEventListener('click', () => { probe.stop(); refreshMediaPanel(); });
-  $('probe-visible').addEventListener('change', () => { $('probe-audio').hidden = !$('probe-visible').checked; });
-  const mediaCommands = { play: 'PLAY', pause: 'PAUSE', nexttrack: 'NEXT', previoustrack: 'PREVIOUS' };
-  document.querySelectorAll('[data-media-action]').forEach(button => button.addEventListener('click', () => {
-    const action = button.dataset.mediaAction;
-    if (probe.active) probe.action(action); else browserMedia.command(mediaCommands[action]);
-    refreshMediaPanel();
-  }));
-  document.addEventListener('keydown', event => {
-    if ($('media-test-panel').hidden) return;
-    keyboardEvents.push({ at: Date.now(), key: event.key, code: event.code, repeat: event.repeat });
-    if (keyboardEvents.length > 40) keyboardEvents.shift();
-  });
-  $('media-export').addEventListener('click', () => {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(diagnosticSnapshot(), null, 2)], { type: 'application/json' }));
-    const link = document.createElement('a'); link.href = url; link.download = `WheelPlay-media-${Date.now()}.json`;
-    document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
-  setInterval(refreshMediaPanel, 500);
+  const xpengDiagnostics = createXpengDiagnostics({ browserAudio, browserMedia,
+    audio: () => audioDiagnostics, stats: () => window.wheelplayStats });
   document.addEventListener('pointerdown', () => browserAudio.unlock(), { capture: true });
   $('secure-setup').addEventListener('toggle', async () => {
     if (!$('secure-setup').open) return;
@@ -794,10 +976,10 @@ if (typeof document !== 'undefined') {
         endpoint.search = ''; endpoint.hash = '';
         $('https-entry').href = endpoint.href;
       }
-      $('tls-fingerprint').textContent = info.enabled === false ? 'HTTPS 已关闭，请在 App 的 Web 监听中开启。'
-        : info.fingerprint || 'HTTPS 正在准备，请稍后重新展开。';
+      $('tls-fingerprint').textContent = info.enabled === false ? t("web_https_is_disabled_enable_it_in_the_app_s")
+        : info.fingerprint || t("web_preparing_https_close_and_reopen_this_section_shortly");
       $('tls-error').textContent = info.error || '';
-    } catch (_) { $('tls-error').textContent = '证书信息暂时无法读取'; }
+    } catch (_) { $('tls-error').textContent = t("web_certificate_information_is_temporarily_unavailable"); }
   });
   function scheduleViewportReport() {
     clearTimeout(viewportReportTimer);
@@ -824,17 +1006,24 @@ if (typeof document !== 'undefined') {
   });
   function cancelMove() { moveGeneration++; movePending = false; }
   function contacts() { return [...pointers.values()].map(p => ({ id: p.id, x: p.x, y: p.y, down: true })); }
-  function release() { cancelMove(); pointers.clear(); send({ type: 'touch', contacts: [] }); }
+  function release() { cancelMove(); pointers.clear(); desktop.release(); send({ type: 'touch', contacts: [] }); }
   function renderPresentation(value) {
+    if (value.revision !== desktopRevision) {
+      desktop.release(false); desktopRevision = value.revision;
+    }
     live = value.interactive;
-    for (const surface of [...screens, video, canvas, heldFrame]) surface.classList.toggle('stale', !value.visible);
+    for (const surface of [...screens, video, canvas, heldFrame].filter(Boolean)) surface.classList.toggle('stale', !value.visible);
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
-    if (!live && pointers.size) release();
-    const transport = rtc && (rtc.active || value.frame?.transport === 'rtc') ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${canvasOption.checked ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : 'JPEG';
-    $('status').textContent = value.state === 'recovering' ? `${transport} · 等待恢复 · 触控已暂停` :
-      value.visible ? value.interactive ? `${transport}${rtc?.recovering ? ' · 等待恢复' : ''} · 触控已连接` :
-        `${transport} · 等待触控输入` : '已连接 · 等待 iPhone 画面';
+    if (!live && (pointers.size || desktop.active)) release();
+    const rtcVisible = rtc && value.visible && value.frame?.transport === 'rtc';
+    rendererStats.activeMode = rtcVisible ? launchMode : value.visible ? 'jpeg' : 'waiting';
+    const rendererLabel = launchMode === 'native' ? 'Video' : t(launchMode === 'video-canvas' ? 'web_video_renderer_compat' : 'web_video_renderer_direct');
+    const fallbackLabel = rendererStats.fallbackReason ? t(rendererStats.fallbackReason === 'processor-unsupported' ? 'web_video_renderer_unavailable' : 'web_video_renderer_failed') : '';
+    const transport = rtcVisible ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC / ${rendererLabel}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `${value.frame?.mime === 'image/webp' ? 'WebP' : 'JPEG'}${fallbackLabel}`;
+    $('status').textContent = value.state === 'recovering' ? t('web_video_recovering', transport) :
+      value.visible ? value.interactive ? t('web_transport_touch_connected', transport, rtc?.recovering ? t('web_waiting_for_recovery') : '') :
+        t('web_video_input_unavailable', transport) : t('web_connected_waiting_for_iphone_video');
     $('media-message').hidden = !value.visible || value.interactive;
     $('media-message').textContent = value.visible && !value.interactive ? $('status').textContent : '';
   }
@@ -856,9 +1045,9 @@ if (typeof document !== 'undefined') {
   }
   function cleanupRtc() {
     if (rtc) rtc.close(); rtc = null; rtcRequested = false; rtcFps = null;
-    canvasRenderer.stop();
-    performanceStats.source = performanceStats.transport = performanceStats.receiver = null;
-    video.hidden = true;
+    video = null;
+    performanceStats.source = performanceStats.transport = performanceStats.receiver = performanceStats.image = null;
+    rendererStats.activeMode = 'waiting';
   }
   function exitLaunchFullscreen() {
     try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
@@ -890,21 +1079,22 @@ if (typeof document !== 'undefined') {
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
     presentation.close(); cleanupRtc(); cleanupImage();
-    probe.stop('disconnect'); browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
+    xpengDiagnostics.stop(); browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
+    browserLocation.close();
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     syncDisplayZoom();
     $('disconnect').hidden = true; $('connect').disabled = false;
-    $('status').textContent = '已断开';
+    $('status').textContent = t("web_disconnected");
     if (refreshQr) initializePairing();
   }
   function connect() {
     clearTimeout(retry);
     $('connect').disabled = true;
-    $('status').textContent = paired ? '正在重新连接…' : '正在连接…';
+    $('status').textContent = paired ? t("web_reconnecting") : t("web_connecting");
     const auth = pairingToken ? `token=${encodeURIComponent(pairingToken)}` : `code=${encodeURIComponent($('code').value)}`;
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2&images=3&nowPlaying=1`);
     ws.binaryType = 'arraybuffer';
-    const useCanvas = canvasOption.checked;
+    const mode = launchMode;
     socket = ws;
     const connectTimer = setTimeout(() => ws.close(), 8000);
     ws.onopen = () => {
@@ -916,33 +1106,50 @@ if (typeof document !== 'undefined') {
         cancelMove(); pointers.clear(); presentation.close(); ws.close();
       } });
       paired = true; attempts = 0; lastStatus = Date.now();
-      browserAudio.attach();
+      browserMedia.open(); browserAudio.attach();
+      browserLocation.attach();
       cleanupRtc();
       presentation.open();
-      rtc = createRtcReceiver(video, { send,
-        onTrack: () => { if (useCanvas) canvasRenderer.prepare(); },
-        onReset: () => { holdRtcFrame(); canvasRenderer.stop(); presentation.invalidate('rtc'); },
-        onReady: () => {
+      webpSupport.then(supported => {
+        if (supported && socket === ws && ws.readyState === WebSocket.OPEN) send({ type: 'image-format', format: 'webp' });
+      });
+      Object.assign(rendererStats, { selectedMode: mode, activeMode: 'waiting', renderedFps: null, renderedFrames: null,
+        fallbackReason: mode === 'track-canvas' && !processorSupported() ? 'processor-unsupported' : null });
+      rtc = createRtcReceiver(callbacks => {
+        if (mode === 'track-canvas') {
+          if (!processorSupported()) throw new Error('processor-unsupported');
+          return createTrackCanvasRenderer(canvas, callbacks);
+        }
+        return createVideoRenderer(mode, canvas, { ...callbacks, createVideo: createLegacyVideo });
+      }, { send,
+        onReset: () => { holdRtcFrame(); presentation.invalidate('rtc'); },
+        onResize: size => { if (socket === ws) showRtcSize(size); },
+        onReady: size => {
           if (socket !== ws) return;
-          if (useCanvas) { canvasRenderer.start(); return; }
-          if (!presentation.present(rtcMedia, video.videoWidth, video.videoHeight, 'rtc', rtcMedia.revision)) return;
-          jpeg.hide(); clearHeldFrame(); video.hidden = false;
-          width = video.videoWidth; height = video.videoHeight;
+          rendererStats.activeMode = mode; rendererStats.fallbackReason = null;
+          rendererStats.renderedFrames = mode === 'native' ? null : 1;
+          showRtcSize(size);
         },
-        onStop: () => {
+        onStop: reason => {
           if (socket !== ws) return;
-          video.hidden = true; rtcFps = null; presentation.invalidate('rtc');
+          video = null; rtcFps = null; rendererStats.fallbackReason = reason; rendererStats.renderedFps = null;
+          presentation.invalidate('rtc');
         },
-        onStats: (fps, metrics) => { rtcFps = fps === null ? null : Math.round(fps); performanceStats.receiver = metrics; },
+        onStats: (fps, metrics) => {
+          const outputFps = mode === 'track-canvas' ? metrics.renderedFps : fps;
+          rtcFps = outputFps === null ? null : Math.round(outputFps); performanceStats.receiver = metrics;
+          rendererStats.renderedFps = metrics.renderedFps; rendererStats.renderedFrames = metrics.renderedFrames;
+          presentation.refresh();
+        },
       });
       $('message').textContent = '';
       $('phone-connect').disabled = false;
-      $('phone-connect-message').textContent = '请保持 Android 上的 WheelPlay 在前台；点击连接 iPhone，按提示完成授权。';
+      $('phone-connect-message').textContent = t("web_keep_wheelplay_in_the_foreground_on_android_tap_connect");
       $('pairing').hidden = true; $('display').hidden = false; $('disconnect').hidden = false;
       $('topbar').hidden = $('hide-toolbar').checked || Boolean(launchPresentation?.immersive);
       lastViewportSignature = '';
       scheduleViewportReport();
-      $('status').textContent = '已连接 · 等待画面';
+      $('status').textContent = t("web_connected_waiting_for_video");
       send({ type: 'ping' });
       clearInterval(heartbeat);
       heartbeat = setInterval(() => {
@@ -950,13 +1157,14 @@ if (typeof document !== 'undefined') {
         if (Date.now() - lastStatus > 6000) { ws.close(); return; }
         send({ type: 'ping' });
         if (pointers.size) send({ type: 'touch', contacts: contacts() }, 'move');
+        desktop.heartbeat();
       }, 400);
     };
     ws.onmessage = event => {
       if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
       if (typeof event.data === 'string') {
         const data = JSON.parse(event.data);
-        browserMedia.control(data);
+        if (browserMedia.receive(data)) return;
         if (browserAudio.control(data)) return;
         if (data.type === 'rtc-offer' || data.type === 'rtc-stop') {
           if (data.type === 'rtc-stop') rtcRequested = false;
@@ -977,19 +1185,25 @@ if (typeof document !== 'undefined') {
           const message = data.message; disconnect(); $('message').textContent = message; return;
         }
         if (data.type === 'status') {
-          if (data.media) browserMedia.control(data.media);
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
+          performanceStats.image = data.performance?.image ?? null;
           lastStatus = Date.now();
+          const nextTouchLimit = Number.isInteger(data.maxTouchContacts) ? Math.max(0, Math.min(10, data.maxTouchContacts)) : 2;
+          if (nextTouchLimit !== maxTouchContacts) { release(); maxTouchContacts = nextTouchLimit; }
           const previousRevision = presentation.current.revision;
           if (!presentation.status(data)) return;
+          if (previousRevision !== presentation.current.revision) desktop.release(false);
+          if (pointerInput !== (data.pointerInput === true) || keyboardInput !== (data.keyboardInput === true)) desktop.release();
+          pointerInput = data.pointerInput === true; keyboardInput = data.keyboardInput === true;
           if (previousRevision !== presentation.current.revision) {
             jpeg.cancelPending();
             if (rtcMedia.revision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
           }
-          $('stage').textContent = data.stage || "等待 iPhone 画面…";
+          $('stage').textContent = data.stage || t("web_waiting_for_iphone_video");
           rtc.progress(data.rtcFrames || 0);
-          if (data.rtcAvailable && !rtcRequested && !rtc.active && typeof RTCPeerConnection !== 'undefined') {
+          if (data.rtcAvailable && !rtcRequested && !rtc.active && typeof RTCPeerConnection !== 'undefined' &&
+              (mode !== 'track-canvas' || processorSupported())) {
             rtcRequested = true; send({ type: 'rtc-start' });
           }
           // The server resets availability when the iPhone starts a new video configuration.
@@ -1003,31 +1217,38 @@ if (typeof document !== 'undefined') {
       let packet;
       try { packet = decodeVideoPacket(event.data); } catch (_) { ws.close(); return; }
       const meta = packet || {};
+      const acknowledge = () => {
+        if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
+        send(packet?.protocol === 3 ? { type: 'ack', sessionId: packet.sessionId,
+          videoEpoch: packet.videoEpoch, sequence: packet.sequence } : { type: 'ack' });
+      };
       const previousRevision = presentation.current.revision;
-      if (!presentation.accepts(meta)) { send({ type: 'ack' }); return; }
+      if (!presentation.accepts(meta)) { acknowledge(); return; }
       if (previousRevision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
-      if (rtc?.active) { send({ type: 'ack' }); return; }
+      if (rtc?.active) { acknowledge(); return; }
       meta.revision = presentation.current.revision;
       const payload = packet ? packet.jpeg : event.data;
-      jpeg.load(payload instanceof ArrayBuffer ? new Blob([payload], { type: 'image/jpeg' }) : payload, meta,
+      jpeg.load(payload instanceof ArrayBuffer ? new Blob([payload], { type: packet?.mime || 'image/jpeg' }) : payload, meta,
         () => socket === ws && ws.readyState === WebSocket.OPEN && !rtc?.active && presentation.current.revision === meta.revision,
-        () => { if (socket === ws && ws.readyState === WebSocket.OPEN) send({ type: 'ack' }); });
+        acknowledge);
     };
     ws.onclose = () => {
       clearTimeout(connectTimer);
       if (socket !== ws) return;
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
-      socket = null; pointers.clear(); clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
-      probe.stop('disconnect'); browserMedia.clear(); browserAudio.close(); $('audio-message').hidden = true;
+      socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false;
+      clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
+      xpengDiagnostics.stop(); browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
+      browserLocation.close();
       if (stopped) return;
       if (!paired || ++attempts > 8) {
-        disconnect(); $('status').textContent = '连接未成功';
-        $('message').textContent = '请检查服务端是否运行、配对码是否正确。连续输错后请等待 30 秒再试。';
+        disconnect(); $('status').textContent = t("web_could_not_connect");
+        $('message').textContent = t("web_check_that_the_server_is_running_and_the_pairing");
         return;
       }
-      $('status').textContent = '连接中断 · 正在重试';
-      $('stage').textContent = '检查服务端与车机是否仍在同一局域网。';
+      $('status').textContent = t("web_connection_interrupted_retrying");
+      $('stage').textContent = t("web_check_that_the_server_and_head_unit_are_still");
       const generation = authGeneration;
       retry = setTimeout(async () => {
         if (deviceCredential) {
@@ -1047,6 +1268,7 @@ if (typeof document !== 'undefined') {
   }
   $('connect-form').addEventListener('submit', event => {
     event.preventDefault();
+    launchMode = selectedMode;
     const generation = ++authGeneration;
     prepareLaunchPresentation();
     stopQr(); $('connect').disabled = true; $('message').textContent = '';
@@ -1073,29 +1295,29 @@ if (typeof document !== 'undefined') {
           try { window.localStorage.removeItem(devicePreference); } catch (_) {}
           showPairingEntry(); startQr();
         }
-        $('status').textContent = '配对未成功';
-        $('message').textContent = '请检查服务和网络，或重新扫码 / 输入当前配对码。连续输错后请等待 30 秒再试。';
+        $('status').textContent = t("web_could_not_pair");
+        $('message').textContent = t("web_check_the_service_and_network_or_scan_again_enter");
       }
     })();
   });
   $('phone-connect').addEventListener('click', () => {
     if (!paired || !send({ type: 'phone-connect' })) {
-      $('phone-connect-message').textContent = '浏览器连接已中断，请重新配对后再试。';
+      $('phone-connect-message').textContent = t("web_browser_connection_interrupted_pair_again_and_retry");
       return;
     }
     $('phone-connect').disabled = true;
-    $('phone-connect-message').textContent = '正在请求连接 iPhone…';
+    $('phone-connect-message').textContent = t("web_requesting_iphone_connection");
   });
   $('disconnect').addEventListener('click', () => disconnect());
   $('fullscreen').addEventListener('click', async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
-      else $('status').textContent = '此浏览器不支持全屏';
-    } catch (_) { $('status').textContent = '请通过浏览器菜单切换全屏'; }
+      else $('status').textContent = t("web_this_browser_does_not_support_full_screen");
+    } catch (_) { $('status').textContent = t("web_use_the_browser_menu_to_toggle_full_screen"); }
   });
   document.addEventListener('fullscreenchange', () => {
-    $('fullscreen').textContent = document.fullscreenElement ? '退出全屏' : '全屏';
+    $('fullscreen').textContent = document.fullscreenElement ? t("web_exit_full_screen") : t("web_full_screen");
     if (!document.fullscreenElement && launchPresentation?.immersive) {
       launchPresentation.immersive = false;
       launchPresentation.ownsFullscreen = false;
@@ -1104,14 +1326,17 @@ if (typeof document !== 'undefined') {
     scheduleViewportReport();
   });
   // A separate layer prevents Android Chrome's native video gestures cancelling drags.
-  for (const surface of [...screens, video, canvas, touchSurface]) {
+  function bindSurface(surface) {
+  desktop.bind(surface);
   surface.addEventListener('contextmenu', event => event.preventDefault());
   surface.addEventListener('pointerdown', event => {
-    if (!live || pointers.size >= 2 || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (pointerInput && event.pointerType === 'mouse') return;
+    if (!live || pointers.size >= maxTouchContacts || (event.pointerType === 'mouse' && event.button !== 0)) return;
     const point = mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height);
     if (!point) return;
     event.preventDefault();
-    const id = [...pointers.values()].some(p => p.id === 0) ? 1 : 0;
+    const used = new Set([...pointers.values()].map(p => p.id));
+    let id = 0; while (used.has(id)) id++;
     pointers.set(event.pointerId, { id, ...point });
     surface.setPointerCapture(event.pointerId);
     cancelMove();
@@ -1142,6 +1367,7 @@ if (typeof document !== 'undefined') {
   surface.addEventListener('pointercancel', up);
   surface.addEventListener('lostpointercapture', up);
   }
+  for (const surface of [...screens, canvas, touchSurface]) bindSurface(surface);
   window.addEventListener('blur', release);
   document.addEventListener('visibilitychange', () => { if (document.hidden) release(); presentation.refresh(); });
   window.addEventListener('pagehide', () => disconnect(false));

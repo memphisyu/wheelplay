@@ -1,4 +1,4 @@
-// Real Chromium + WebSocket + synthetic JPEGs. No phone or CarPlay hardware is simulated.
+// Real Chromium + WebSocket + JPEG/WebP images. No phone or CarPlay hardware is simulated.
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -7,56 +7,83 @@ import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import WebSocket, { WebSocketServer } from 'ws';
 import ffmpeg from 'ffmpeg-static';
+import { resourceStrings, renderBrowserTemplate } from './resource-strings.mjs';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+const messages = resourceStrings('values-zh-rCN');
 const root = new URL('../common/src/main/assets/web/', import.meta.url);
+const androidServer = await readFile(new URL('../common/src/main/java/com/shilapi/xcertplay/web/LanWebServer.kt', import.meta.url), 'utf8');
+const csp = androidServer.match(/"(default-src 'self';[^"\n]+)"/)[1];
 const profile = await mkdtemp(join(tmpdir(), 'wheelplay-media-'));
-function jpeg(width, height) {
+function image(width, height, codec = 'mjpeg') {
   const result = spawnSync(process.env.FFMPEG_BIN || ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc=size=${width}x${height}:rate=1`,
-    '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1']);
+    '-frames:v', '1', '-f', 'image2pipe', '-vcodec', codec, 'pipe:1']);
   assert.equal(result.status, 0, result.stderr.toString()); return result.stdout;
 }
-const landscape = jpeg(320, 180), portrait = jpeg(180, 320);
-let viewer, connections = 0, acks = 0, paused = false;
-const touches = [], errors = [];
-let media = { type: 'status', mediaProtocol: 2, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
+const images = { jpeg: [image(320, 180), image(180, 320)], webp: [image(320, 180, 'libwebp'), image(180, 320, 'libwebp')] };
+let viewer, connections = 0, acks = 0, paused = false, sequence = 0, format = 'jpeg', jpegFallbacks = 0, webpProbes = 0;
+const pendingImages = new Map();
+const touches = [], errors = [], mediaCommands = [], desktopInputs = [];
+let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
+  res.setHeader('Content-Security-Policy', csp);
+  if (req.url === '/now-playing/artwork?id=test-cover') {
+    res.setHeader('Content-Type', 'image/jpeg'); res.setHeader('Cache-Control', 'private, no-store');
+    res.end(images.jpeg[0]); return;
+  }
   if (req.url.startsWith('/pair/')) {
     const result = req.url === '/pair/remember' ? { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Test' } :
       req.url === '/pair/request' ? { id: 'qr', secret: 'poll', expiresIn: 120 } :
         req.url === '/pair/status' ? { state: 'pending' } : { token: 'session', name: 'Test' };
     res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(result)); return;
   }
-  const file = { '/': 'index.html', '/app.js': 'app.js', '/browser-audio.js': 'browser-audio.js',
-    '/browser-media.js': 'browser-media.js', '/media-probe.js': 'media-probe.js',
-    '/flac-mp4.js': 'flac-mp4.js', '/mse-music.js': 'mse-music.js',
+  if (req.url === '/i18n.js') {
+    res.setHeader('Content-Type', 'text/javascript'); res.end(`globalThis.wheelplayMessages=${JSON.stringify(messages)};`); return;
+  }
+  const file = { '/': 'index.html', '/app.js': 'app.js', '/flac-mp4.js': 'flac-mp4.js', '/mse-music.js': 'mse-music.js', '/media-probe.js': 'media-probe.js', '/xpeng-diagnostics.js': 'xpeng-diagnostics.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
     '/style.css': 'style.css', '/audio-worklet.js': 'audio-worklet.js' }[req.url];
   if (!file) { res.writeHead(404); res.end(); return; }
   let body = await readFile(new URL(file, root));
+  if (file === 'index.html') body = renderBrowserTemplate(body.toString(), messages);
   res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
   res.setHeader('Cache-Control', 'no-store'); res.end(body);
 });
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
-  assert.equal(new URL(req.url, 'http://localhost').searchParams.get('media'), '2');
+  const query = new URL(req.url, 'http://localhost').searchParams;
+  assert.equal(query.get('media'), '2'); assert.equal(query.get('images'), '3');
   wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
 });
 function status(extra = {}) { media = { ...media, ...extra }; viewer.send(JSON.stringify(media)); }
-function frame(epoch = media.videoEpoch, width = media.width, height = media.height) {
-  const image = width === 320 ? landscape : portrait, packet = Buffer.alloc(36 + image.length);
-  packet.writeUInt32LE(0x32565057); packet.writeDoubleLE(7, 4); packet.writeDoubleLE(epoch, 12);
-  packet.writeDoubleLE(acks + 1, 20); packet.writeUInt32LE(width, 28); packet.writeUInt32LE(height, 32);
-  image.copy(packet, 36); viewer.send(packet);
+function frame(epoch = media.videoEpoch, width = media.width, height = media.height, corrupt = false) {
+  const image = corrupt ? Buffer.from([0, 1, 2]) : images[format][width === 320 ? 0 : 1], packet = Buffer.alloc(40 + image.length);
+  packet.writeUInt32LE(0x33565057); packet.writeDoubleLE(7, 4); packet.writeDoubleLE(epoch, 12);
+  packet.writeDoubleLE(++sequence, 20); packet.writeUInt32LE(width, 28); packet.writeUInt32LE(height, 32);
+  packet.writeUInt32LE(format === 'webp' ? 2 : 1, 36);
+  pendingImages.set(sequence, { sessionId: 7, videoEpoch: epoch });
+  image.copy(packet, 40); viewer.send(packet);
 }
 wss.on('connection', ws => {
-  viewer = ws; connections++;
+  viewer = ws; connections++; format = 'jpeg'; pendingImages.clear();
   let initial = true;
   ws.on('message', data => {
     const message = JSON.parse(data);
-    if (message.type === 'ack') acks++;
+    if (message.type === 'input') desktopInputs.push(message);
+    if (message.type === 'ack') {
+      assert.deepEqual(pendingImages.get(message.sequence), { sessionId: message.sessionId, videoEpoch: message.videoEpoch });
+      pendingImages.delete(message.sequence); acks++;
+    }
+    if (message.type === 'image-format') {
+      format = message.format;
+      if (format === 'jpeg') jpegFallbacks++; else webpProbes++;
+      if (connections === 1) frame();
+    }
     if (message.type === 'touch') touches.push(message);
+    if (message.type === 'media-command') {
+      mediaCommands.push(message);
+      ws.send(JSON.stringify({ type: 'media-command-result', requestId: message.requestId, result: 'sent' }));
+    }
     if (message.type === 'ping' && !paused) {
       ws.send(JSON.stringify(media));
       if (initial && connections === 1) frame();
@@ -67,16 +94,22 @@ wss.on('connection', ws => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const browser = spawn(process.env.BROWSER_BIN || 'chromium', ['--headless', '--no-sandbox', '--disable-gpu',
   '--disable-background-networking', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'],
-{ stdio: ['ignore', 'ignore', 'ignore'] });
+{ stdio: ['ignore', 'ignore', 'pipe'] });
+let browserStderr = '';
+browser.stderr.on('data', chunk => { browserStderr = (browserStderr + chunk).slice(-12000); });
+let browserError; browser.on('error', error => { browserError = error; });
 let devtools;
 try {
   let port;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (browser.exitCode !== null) throw new Error(`Browser exited: ${browser.exitCode}`);
+  for (let attempt = 0; attempt < 400; attempt++) {
+    if (browserError) throw browserError;
+    if (browser.exitCode !== null) throw new Error(`Browser exited: ${browser.exitCode} ${browserStderr}`);
+    const announced = browserStderr.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//);
+    if (announced) { port = announced[1]; break; }
     try { port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; } catch {}
     await pause(50);
   }
-  assert.ok(port, 'Chromium DevTools must start');
+  assert.ok(port, `Chromium DevTools must start: ${browserStderr}`);
   const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json());
   devtools = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl);
   await new Promise(resolve => devtools.once('open', resolve));
@@ -117,6 +150,91 @@ try {
   await wait(`!!window.wheelplayStats && !!document.getElementById('connect') && !document.getElementById('connect').disabled`);
   await evaluate(`document.getElementById('code').value='123456';document.getElementById('connect-form').requestSubmit()`);
   await wait(showing);
+  await evaluate(`
+    window.mediaHandlers = {};
+    const originalActionHandler = MediaSession.prototype.setActionHandler;
+    MediaSession.prototype.setActionHandler = function(action, handler) {
+      window.mediaHandlers[action] = handler;
+      return originalActionHandler.call(this, action, handler);
+    };`);
+  const nowPlaying = { type: 'now-playing', sessionId: 'phone-one', revision: 1, connectionGeneration: 7, trackRevision: 1,
+    connected: true, available: true, title: 'Browser test song', artist: 'Test artist', album: 'Test album',
+    status: 'playing', durationMs: 100000, positionMs: 12000, speed: 1, canSeek: false,
+    artworkUrl: '/now-playing/artwork?id=test-cover' };
+  viewer.send(JSON.stringify(nowPlaying));
+  await wait(`navigator.mediaSession.metadata?.title === 'Browser test song' && navigator.mediaSession.playbackState === 'playing'`);
+  assert.equal(await evaluate(`new Promise(resolve => { const image = new Image(); image.onload = () => resolve(image.naturalWidth); image.onerror = () => resolve(0); image.src = navigator.mediaSession.metadata.artwork[0].src; })`), 320);
+  await evaluate(`window.retiredPause = mediaHandlers.pause; mediaHandlers.pause()`);
+  for (let attempt = 0; !mediaCommands.length && attempt < 100; attempt++) await pause(10);
+  assert.equal(mediaCommands[0]?.action, 'pause'); assert.equal(mediaCommands[0]?.connectionGeneration, 7);
+  assert.equal(await evaluate('navigator.mediaSession.playbackState'), 'playing', 'Sending pause is not a phone acknowledgement');
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 2, status: 'paused', speed: 0 }));
+  await wait(`navigator.mediaSession.playbackState === 'paused'`);
+  assert.equal(await evaluate('mediaHandlers.seekto === null && mediaHandlers.seekforward === null'), true);
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 3, status: 'paused', speed: 0, canSeek: true }));
+  await wait(`typeof mediaHandlers.seekto === 'function' && typeof mediaHandlers.seekforward === 'function'`);
+  await evaluate(`window.retiredSeek = mediaHandlers.seekto; mediaHandlers.seekto({seekTime: 10, fastSeek: true}); mediaHandlers.seekto({seekTime: 42.123})`);
+  for (let attempt = 0; mediaCommands.length < 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(mediaCommands.length, 2);
+  assert.equal(mediaCommands[1].action, 'seekto');
+  assert.equal(mediaCommands[1].positionMs, 42123);
+  assert.equal(mediaCommands[1].trackRevision, 1);
+  assert.equal(await evaluate('navigator.mediaSession.playbackState'), 'paused');
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 4, trackRevision: 2, title: 'New track', artworkUrl: null, durationMs: null, positionMs: null }));
+  await wait(`navigator.mediaSession.metadata?.title === 'New track' && navigator.mediaSession.metadata.artwork.length === 0`);
+  await evaluate(`retiredSeek({seekTime: 60})`);
+  await pause(200); assert.equal(mediaCommands.length, 2, 'Retired seek cannot control the new track');
+  await wait(`document.getElementById('status').textContent.includes('WebP')`);
+  assert.equal(webpProbes, 1, 'WebP is advertised only after real decoding succeeds');
+  await evaluate(`const option=document.getElementById('ignore-browser-zoom');option.checked=true;option.dispatchEvent(new Event('change'))`);
+  await command('Emulation.setPageScaleFactor', { pageScaleFactor: 1.5 });
+  await wait(`document.getElementById('display').classList.contains('ignore-browser-zoom') &&
+    Math.abs(parseFloat(document.getElementById('display').style.transform.slice(6))-1/visualViewport.scale)<0.01`);
+  const beforeZoomTouch = touches.length; await touch('pointerdown'); await touch('pointerup');
+  for (let attempt = 0; touches.length < beforeZoomTouch + 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(touches.length, beforeZoomTouch + 2, 'Zoom-compensated WebP must retain touch');
+  assert.equal(await evaluate(showing), true);
+  await command('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+  await evaluate(`document.getElementById('ignore-browser-zoom').checked=false;document.getElementById('ignore-browser-zoom').dispatchEvent(new Event('change'))`);
+  // Source capabilities replace the old global two-finger limit.
+  status({ maxTouchContacts: 5 });
+  await pause(100);
+  await command('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints:
+    Array.from({ length: 5 }, (_, id) => ({ x: 70 + id * 30, y: 100, id })) });
+  for (let attempt = 0; touches.at(-1)?.contacts.length !== 5 && attempt < 100; attempt++) await pause(10);
+  assert.equal(touches.at(-1).contacts.length, 5, 'Negotiated five-touch source accepts five fingers');
+  assert.equal(new Set(touches.at(-1).contacts.map(p => p.id)).size, 5);
+  await command('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  status({ maxTouchContacts: 0, inputReady: false });
+  await pause(100);
+  const readOnlyCount = touches.length;
+  await touch('pointerdown'); await touch('pointerup'); await pause(50);
+  assert.equal(touches.length, readOnlyCount, 'Read-only source must not accept touches');
+  assert.equal(await evaluate(`document.getElementById('waiting').hidden`), true, 'Read-only video stays visible');
+  status({ maxTouchContacts: 2, inputReady: true });
+  await wait(showing);
+  status({ pointerInput: true, keyboardInput: true, maxTouchContacts: 1 });
+  await pause(100);
+  const touchBeforeMouse = touches.length;
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 100, button: 'right', buttons: 2, clickCount: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 120, y: 110, button: 'right', buttons: 2 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 120, y: 110, button: 'right', buttons: 0, clickCount: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 120, y: 110, deltaX: 0, deltaY: -100 });
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
+  await pause(100);
+  assert.equal(touches.length, touchBeforeMouse, 'Desktop mouse must not also synthesize touch');
+  assert.ok(desktopInputs.some(e => e.kind === 'pointer' && e.buttons === 2));
+  assert.ok(desktopInputs.some(e => e.kind === 'pointer' && e.buttons === 0));
+  assert.ok(desktopInputs.some(e => e.kind === 'scroll' && e.dy === -1));
+  assert.deepEqual(desktopInputs.filter(e => e.kind === 'key').map(e => [e.key,e.down]), [['a',true],['a',false]]);
+  assert.ok(desktopInputs.every(e => e.sessionId === media.sessionId && e.videoEpoch === media.videoEpoch));
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16 });
+  await evaluate("document.getElementById('touch-surface').blur()");
+  await pause(100);
+  assert.equal(desktopInputs.at(-1).kind, 'release', 'Blur releases remote modifiers');
+  status({ pointerInput: false, keyboardInput: false, maxTouchContacts: 2 });
+  await pause(100);
   await evaluate(`window.overlayFlashes=0;new MutationObserver(()=>{if(!document.getElementById('waiting').hidden)overlayFlashes++}).observe(document.getElementById('waiting'),{attributes:true,attributeFilter:['hidden']})`);
   for (let index = 0; index < 10; index++) {
     const previous = acks; frame(); status();
@@ -124,6 +242,14 @@ try {
     assert.ok(acks > previous, 'JPEG must commit and ACK');
   }
   assert.equal(await evaluate('overlayFlashes'), 0, 'Decoding must not flash the overlay');
+  const beforePipeline = acks; frame(); frame();
+  for (let attempt = 0; acks < beforePipeline + 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(acks, beforePipeline + 2, 'Both images must ACK their own identities');
+  assert.equal(await evaluate(showing), true);
+  frame(media.videoEpoch, media.width, media.height, true);
+  await wait(`document.getElementById('status').textContent.includes('JPEG')`);
+  assert.equal(jpegFallbacks, 1, 'A WebP decode failure must request JPEG and recover');
+  assert.equal(await evaluate('overlayFlashes'), 0, 'A failed WebP must preserve the last displayed picture');
   await touch('pointerdown'); paused = true;
   status({ sourceState: 'recovering', streaming: false, inputReady: false });
   await wait(`!document.getElementById('media-message').hidden`);
@@ -132,6 +258,7 @@ try {
   await touch('pointerup');
   const count = touches.length; await touch('pointerdown'); await pause(50);
   assert.equal(touches.length, count, 'Gap must block new touch');
+  await touch('pointerup'); // End the rejected physical gesture before later mouse input.
   await pause(2100);
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Deadline expires without status');
   assert.equal(viewer.readyState, WebSocket.OPEN);
@@ -139,23 +266,43 @@ try {
   status({ sourceState: 'recovering', inputReady: false }); await pause(100);
   status({ sourceState: 'ready', inputReady: true }); await wait(showing); await pause(2100);
   assert.equal(await evaluate(showing), true, 'Cancelled deadline must not hide recovered picture');
+  status({ pointerInput: true, keyboardInput: true, maxTouchContacts: 1 });
+  await pause(100);
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 100, button: 'left', buttons: 1, clickCount: 1 });
+  await pause(100);
+  assert.equal(desktopInputs.at(-1).buttons, 1);
   status({ videoEpoch: 2 });
   await wait(`document.getElementById('touch-surface').classList.contains('stale')`);
   frame(1); await pause(100);
   assert.equal(await evaluate(showing), false, 'Old epoch cannot restore touch');
   frame(2); await wait(showing);
+  const inputsAfterResize = desktopInputs.length;
+  await command('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 130, y: 110, button: 'left', buttons: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 130, y: 110, button: 'left', buttons: 0, clickCount: 1 });
+  await pause(100);
+  assert.equal(desktopInputs.length, inputsAfterResize, 'Old physical drag must not enter the new epoch');
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 100, button: 'left', buttons: 1, clickCount: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 100, y: 100, button: 'left', buttons: 0, clickCount: 1 });
+  await pause(100);
+  assert.deepEqual(desktopInputs.slice(inputsAfterResize).map(e => [e.buttons,e.videoEpoch]), [[1,2],[0,2]],
+    'A fresh press must work after the cancelled drag is released');
   status({ videoEpoch: 3, width: 180, height: 320 }); frame(3);
-  await wait(showing);
-  assert.equal(await evaluate(`[...document.querySelectorAll('#screen,#screen-next')].find(image=>!image.hidden).naturalWidth`), 180);
+  await wait(`(${showing}) && [...document.querySelectorAll('#screen,#screen-next,#screen-third')].find(image=>!image.hidden)?.naturalWidth === 180`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('#screen,#screen-next,#screen-third')].find(image=>!image.hidden).naturalWidth`), 180);
   viewer.close();
   for (let attempt = 0; connections < 2 && attempt < 100; attempt++) await pause(50);
   assert.equal(connections, 2);
+  assert.equal(await evaluate(`navigator.mediaSession.metadata === null && navigator.mediaSession.playbackState === 'none'`), true);
+  await evaluate('retiredPause()'); await pause(50);
+  assert.equal(mediaCommands.length, 2, 'Retired system controls cannot reach the replacement socket');
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Reconnect must wait for its own frame');
   frame(); await wait(showing);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, connections, jpegAcks: acks,
-    checks: ['decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
-      'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect'] }, null, 2));
+  console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
+    checks: ['five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
+      'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
+      'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
+      'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
 } finally {
   devtools?.close(); browser.kill('SIGTERM');
   for (const client of wss.clients) client.terminate();

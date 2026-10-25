@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { resourceStrings } from '../scripts/resource-strings.mjs';
+globalThis.wheelplayMessages = resourceStrings('values-zh-rCN');
 import assert from 'node:assert/strict';
 import { createBrowserAudio, createMicResampler, decodeAudioPacket } from '../common/src/main/assets/web/browser-audio.js';
 

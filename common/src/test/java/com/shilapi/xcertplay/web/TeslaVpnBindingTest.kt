@@ -16,7 +16,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], shadows = [TeslaVpnBindingTest.ConsentShadow::class])
+@Config(qualifiers = "zh-rCN", sdk = [29], shadows = [TeslaVpnBindingTest.ConsentShadow::class])
 class TeslaVpnBindingTest {
     @Implements(VpnService::class)
     class ConsentShadow : org.robolectric.shadows.ShadowService() {

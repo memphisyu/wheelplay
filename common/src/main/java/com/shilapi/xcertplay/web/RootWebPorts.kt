@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay.web
 
+import com.shilapi.xcertplay.i18n.*
+import com.shilapi.xcertplay.shared.R as UiR
+
 /** Port-only DNAT preserves the destination IP needed by the hotspot's return route. */
 internal data class RootPortPlan(val publicPort: Int, val listenerPort: Int, val address: String) {
     init {
@@ -13,9 +16,15 @@ internal data class RootPortPlan(val publicPort: Int, val listenerPort: Int, val
             for (chain in listOf("PREROUTING", "OUTPUT")) {
                 val destination = "-d $address/32 "
                 // The /32 alias is installed before these rules; an addrtype match is redundant.
-                val rule = "$chain $destination-p tcp --dport $publicPort " +
-                    "-m comment --comment wheelplay-port-$publicPort -j DNAT --to-destination :$listenerPort"
-                add(RootHttpPlan.Command("$binary -w 2 -t nat -I $rule", "$binary -w 2 -t nat -D $rule"))
+                val rule =
+                    "$chain $destination-p tcp --dport $publicPort " +
+                        "-m comment --comment wheelplay-port-$publicPort -j DNAT --to-destination :$listenerPort"
+                add(
+                    RootHttpPlan.Command(
+                        "$binary -w 2 -t nat -I $rule",
+                        "$binary -w 2 -t nat -D $rule",
+                    )
+                )
             }
         }
     }
@@ -25,7 +34,8 @@ internal data class RootPortPlan(val publicPort: Int, val listenerPort: Int, val
     fun preflight(): String {
         val hex = "%04X".format(publicPort)
         // Do not redirect a low port already owned by another listening service.
-        val preflight = """
+        val preflight =
+            """
             [ -r /proc/net/tcp ] || { echo 'Cannot check occupied ports'; exit 1; }
             port_tables=/proc/net/tcp
             [ ! -r /proc/net/tcp6 ] || port_tables="${'$'}port_tables /proc/net/tcp6"
@@ -42,50 +52,79 @@ internal data class RootPortPlan(val publicPort: Int, val listenerPort: Int, val
                 echo 'Port $publicPort already has a WheelPlay forwarding rule'; exit 1
               fi
             done
-        """.trimIndent()
+        """
+                .trimIndent()
         return preflight
     }
 }
 
-/** Permission probes make no routing changes. Startup checks once; the button can retry explicitly. */
+/**
+ * Permission probes make no routing changes. Startup checks once; the button can retry explicitly.
+ */
 internal object RootAccess {
-    @Volatile var granted = false
+    @Volatile
+    var granted = false
         private set
-    @Volatile var status = "尚未请求 Root 权限"
+
+    @Volatile
+    var status = UiText(UiR.string.ui_root_access_has_not_been_requested)
         private set
-    @Volatile var checking = false
+
+    @Volatile
+    var checking = false
         private set
+
     @Volatile internal var startupChecked = false
     private val startupLock = Any()
     private val probeLock = Any()
-    internal var authorize: () -> Unit = { RootHttpShell.openScript(rootScript(emptyList())).use { } }
+    internal var authorize: () -> Unit = {
+        RootHttpShell.openScript(rootScript(emptyList())).use {}
+    }
 
     fun checkOnStartup() {
         synchronized(startupLock) {
             if (startupChecked) return
             startupChecked = true
             checking = true
-            status = "正在检查 Root 权限…"
+            status = UiText(UiR.string.ui_checking_root_access)
         }
-        Thread({
-            request()
-            TeslaHttpCompatibility.retry()
-        }, "wheelplay-root-check").apply { isDaemon = true; start() }
+        Thread(
+                {
+                    request()
+                    TeslaHttpCompatibility.retry()
+                },
+                "wheelplay-root-check",
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
     }
 
-    fun request(): String? = synchronized(probeLock) {
-        synchronized(startupLock) { startupChecked = true }
-        checking = true
-        status = "正在请求 Root 权限…"
-        granted = false
-        return try {
-            authorize()
-            granted = true
-            status = "Root 已授权（本次检查）"
-            null
-        } catch (error: Exception) {
-            status = "Root 未授权：${error.message ?: error.javaClass.simpleName}"
-            status
-        } finally { checking = false }
-    }
+    fun request(): UiText? =
+        synchronized(probeLock) {
+            synchronized(startupLock) { startupChecked = true }
+            checking = true
+            status = UiText(UiR.string.ui_requesting_root_access)
+            granted = false
+            return try {
+                authorize()
+                granted = true
+                status = UiText(UiR.string.ui_root_access_granted_this_check)
+                null
+            } catch (error: Exception) {
+                status =
+                    UiText(
+                        UiR.string.status_root_not_authorized,
+                        listOf(
+                            (error as? LocalizedFailure)?.uiText
+                                ?: error.message
+                                ?: error.javaClass.simpleName
+                        ),
+                    )
+                status
+            } finally {
+                checking = false
+            }
+        }
 }

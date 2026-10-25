@@ -13,6 +13,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -23,14 +24,14 @@ internal class CarPlayMediaSessionBridge(
 ) : AutoCloseable {
     private val main = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(AudioManager::class.java)
-    internal val session = MediaSession(context, "WheelPlay iPhone")
+    internal val session = MediaSession(context, "WheelPlay projection")
     private val artworkWorker = Executors.newSingleThreadExecutor { Thread(it, "carplay-artwork-preview").apply { isDaemon = true } }
     private val defaultArtwork = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888).also { bitmap ->
         context.applicationInfo.loadIcon(context.packageManager).apply {
             setBounds(0, 0, 128, 128); draw(Canvas(bitmap))
         }
     }
-    private var source: CarPlayMediaSource? = null
+    private var source: MediaControlSource? = null
     private var output: MediaOutputControl? = null
     private var subscription: AutoCloseable? = null
     private var routeSubscription: AutoCloseable? = null
@@ -85,12 +86,12 @@ internal class CarPlayMediaSessionBridge(
             override fun onSkipToNext() = dispatch(MediaCommand.NEXT)
             override fun onSkipToPrevious() = dispatch(MediaCommand.PREVIOUS)
             override fun onSeekTo(pos: Long) {
-                if (!closed && generation == commandGeneration && state.canSeek) source?.seekTo(pos)
+                if (!closed && generation == commandGeneration && state.canSeek) source?.let { browserSeek(it, state.connectionGeneration, state.trackRevision, pos) }
             }
         }, main)
     }
 
-    fun bind(next: CarPlayMediaSource?, nextOutput: MediaOutputControl?) {
+    fun bind(next: MediaControlSource?, nextOutput: MediaOutputControl?) {
         if (closed || source === next && output === nextOutput) return
         val generation = ++epoch
         ++commandGeneration
@@ -126,12 +127,35 @@ internal class CarPlayMediaSessionBridge(
     }
 
     fun command(command: MediaCommand) {
-        if (closed || !state.available) return
-        val current = source?.mediaSnapshot() ?: return
-        if (!current.available || current.connectionGeneration != state.connectionGeneration) return
+        dispatchCommand(command)
+    }
+
+    /** Called on the main thread; browser controls share native focus and pause handling. */
+    fun browserCommand(expected: CarPlayMediaSource, generation: Long, command: MediaCommand): CompletableFuture<MediaCommandResult> {
+        if (source !== expected || state.connectionGeneration != generation)
+            return CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        return dispatchCommand(command)
+    }
+
+    fun browserSeek(expected: CarPlayMediaSource, generation: Long, track: Long, positionMs: Long): CompletableFuture<MediaCommandResult> {
+        if (closed || source !== expected || state.connectionGeneration != generation || state.trackRevision != track)
+            return CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        val current = expected.mediaSnapshot()
+        if (!current.available || current.connectionGeneration != generation || current.trackRevision != track)
+            return CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        if (!current.canSeek) return CompletableFuture.completedFuture(MediaCommandResult.UNSUPPORTED)
+        // Seeking does not imply play, request focus, or release the pause gate.
+        return expected.seekTo(positionMs, generation, track)
+    }
+
+    private fun dispatchCommand(command: MediaCommand): CompletableFuture<MediaCommandResult> {
+        fun unavailable() = CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        if (closed || !state.available) return unavailable()
+        val current = source?.mediaSnapshot() ?: return unavailable()
+        if (!current.available || current.connectionGeneration != state.connectionGeneration) return unavailable()
         if (command == MediaCommand.PLAY || command == MediaCommand.TOGGLE && !state.playing) {
             focusBlocked = false; pausePending = false; ++pauseRequest
-            if (!remote && !requestFocus()) return
+            if (!remote && !requestFocus()) return unavailable()
         }
         if (command == MediaCommand.PAUSE || command == MediaCommand.TOGGLE && state.playing) {
             pausePending = true
@@ -144,12 +168,13 @@ internal class CarPlayMediaSessionBridge(
                 }
             }, 3000)
         }
-        source?.sendMediaCommand(command, state.connectionGeneration)
+        return source?.sendMediaCommand(command, state.connectionGeneration) ?: unavailable()
     }
 
     private fun apply(next: NowPlayingState) {
         val wasPaused = state.status == PhonePlaybackStatus.PAUSED || state.status == PhonePlaybackStatus.STOPPED
-        if (state.connectionGeneration != next.connectionGeneration || state.connected && !next.connected) {
+        if (state.connectionGeneration != next.connectionGeneration || state.trackRevision != next.trackRevision ||
+            state.connected && !next.connected) {
             ++commandGeneration
             installCallbacks()
         }

@@ -1,16 +1,21 @@
 package com.shilapi.xcertplay.web
 
 import android.content.Context
-import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.shilapi.xcertplay.AirPlayPersistence
-import com.shilapi.xcertplay.CarPlayBackgroundSession
-import com.shilapi.xcertplay.DiPlayBootstrap
-import com.shilapi.xcertplay.CarPlayMicrophoneSource
-import com.shilapi.xcertplay.CarPlayAppearance
 import com.shilapi.xcertplay.BrowserOfflinePolicy
+import com.shilapi.xcertplay.CarPlayAppearance
+import com.shilapi.xcertplay.projection.projectionSessions
+import com.shilapi.xcertplay.projection.ProjectionContact
+import com.shilapi.xcertplay.projection.ProjectionSession
+import com.shilapi.xcertplay.projection.ProjectionInput
+import com.shilapi.xcertplay.CarPlayMicrophoneSource
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.i18n.*
 import com.shilapi.xcertplay.isDarkMode
+import com.shilapi.xcertplay.shared.R as UiR
 import java.security.SecureRandom
 
 /** Service-owned web endpoint; media sinks only publish immutable latest frames. */
@@ -19,11 +24,15 @@ internal object WebSession {
         val jpeg: ByteArray, val at: Long, val sequence: Long,
         val sessionId: Long = 0, val videoEpoch: Long = 0,
         val width: Int = 1280, val height: Int = 720,
+        val format: ImageFormat = ImageFormat.JPEG,
+        val quality: Int = ImageEncodingOptions.DEFAULT_QUALITY,
     )
 
     data class MediaSnapshot(
         val sessionId: Long, val videoEpoch: Long, val width: Int, val height: Int,
         val sourceState: String, val inputReady: Boolean, val frame: Frame?, val source: WebVideoSource?,
+        val sourceId: String? = null, val sourceName: String? = null, val maxTouchContacts: Int = 0,
+        val pointerInput: Boolean = false, val keyboardInput: Boolean = false,
     )
 
     private var mediaSessionId = SecureRandom().nextLong().ushr(11)
@@ -38,8 +47,11 @@ internal object WebSession {
             frame == null -> "starting"
             else -> "recovering"
         },
-        !mediaEnded && videoActive && CarPlayBackgroundSession.snapshot()?.controller?.touchReady == true,
+        !mediaEnded && videoActive && projectionSessions.inputReady(inputSession),
         frame, videoSource,
+        inputSession?.descriptor?.id, inputSession?.descriptor?.displayName,
+        inputSession?.capabilities?.maxTouchContacts ?: 0,
+        inputSession?.capabilities?.pointerInput == true, inputSession?.capabilities?.keyboardInput == true,
     )
 
     @Synchronized fun mediaMatches(sessionId: Long, epoch: Long): Boolean =
@@ -47,81 +59,152 @@ internal object WebSession {
 
     /** Keep version validation and delivery in the same configuration critical section. */
     @Synchronized fun mediaTouch(client: Any, sessionId: Long, epoch: Long,
-        contacts: List<com.shilapi.xcertplay.airplay.AirPlayContact>, at: Long): Boolean {
-        if (contacts.isNotEmpty() && (!mediaMatches(sessionId, epoch) ||
-                CarPlayBackgroundSession.snapshot()?.controller?.touchReady != true)) {
-            touch.touch(client, emptyList(), at)
-            return false
-        }
+        contacts: List<ProjectionContact>, at: Long): Boolean {
+        if (!mediaMatches(sessionId, epoch) ||
+            !projectionSessions.inputReady(inputSession)) return false
         return touch.touch(client, contacts, at)
+    }
+    @Synchronized fun mediaInput(client: Any, sessionId: Long, epoch: Long,
+        event: ProjectionInput, at: Long): Boolean {
+        if (!mediaMatches(sessionId, epoch) || !projectionSessions.inputReady(inputSession)) return false
+        return touch.input(client, event, at)
     }
 
     @Volatile
     var frame: Frame? = null
         private set
-    @Volatile var width = 1280
+
+    @Volatile
+    var width = 1280
         private set
-    @Volatile var height = 720
+
+    @Volatile
+    var height = 720
         private set
+
     @Volatile var videoActive = false
-    @Volatile var stage = "等待连接 iPhone"
-    @Volatile var error: String? = null
+    @Volatile private var stageText = UiText(UiR.string.projection_waiting)
+
+    fun stageDetail(context: Context): String = stageText.resolve(context)
+
+    fun stage(context: Context): String {
+        val session = projectionSessions.snapshot()
+        return when {
+            session == null -> stageText.resolve(context)
+            session.statusText != null -> session.statusText!!
+            else -> context.getString(UiR.string.projection_active, session.descriptor.displayName)
+        }
+    }
+
+    fun setStage(value: UiText) {
+        stageText = value
+    }
+
+    @Volatile
+    var error: String? = null
         private set
+
     @Volatile private var server: LanWebServer? = null
     private var mdns: WebMdns? = null
-    @Volatile var httpPort = WebListenSettings.DEFAULT_HTTP_PORT
+    @Volatile
+    var httpPort = WebListenSettings.DEFAULT_HTTP_PORT
         private set
-    @Volatile var httpsPort = WebListenSettings.DEFAULT_HTTPS_PORT
+
+    @Volatile
+    var httpsPort = WebListenSettings.DEFAULT_HTTPS_PORT
         private set
+
     @Volatile private var secureServer: LanWebServer? = null
-    @Volatile var tls: LanTls.Endpoint? = null
+    @Volatile
+    var tls: LanTls.Endpoint? = null
         private set
-    @Volatile var tlsError: String? = null
+
+    @Volatile
+    var tlsError: String? = null
         private set
+
     private var serverGeneration = 0L
-    @Volatile var code = ""
+    @Volatile
+    var code = ""
         private set
+
     private var generation = 0L
     private var sequence = 0L
-    @Volatile var videoSource: WebVideoSource? = null
+    @Volatile
+    var videoSource: WebVideoSource? = null
         private set
-    @Volatile var adaptiveBrowserSize = true
+
+    @Volatile
+    var adaptiveBrowserSize = true
         private set
+
     @Volatile private var browserViewport: Pair<Int, Int>? = null
-    val currentBrowserViewport: Pair<Int, Int>? get() = browserViewport
+    val currentBrowserViewport: Pair<Int, Int>?
+        get() = browserViewport
+
     @Volatile private var browserViewportListener: ((Int?, Int?) -> Unit)? = null
-    val touch = TouchLease { contacts ->
-        CarPlayBackgroundSession.snapshot()?.controller?.sendTouch(contacts) ?: false
+    @Volatile private var inputSession: ProjectionSession? = null
+    val maxTouchContacts get() = projectionSessions.snapshot()?.capabilities?.maxTouchContacts ?: 0
+    val touch = TouchLease(maxContacts = { maxTouchContacts }, sendInput = { event ->
+        inputSession?.let { projectionSessions.input(it, event) } ?: false
+    }) { contacts ->
+        val target = inputSession
+        target != null && projectionSessions.touch(target, contacts)
     }
-    val running get() = server?.ready == true
-    val httpsReady get() = tls != null && secureServer?.ready == true
-    val httpListenerPort get() = server?.takeIf { it.ready }?.listeningPort
-    val httpsListenerPort get() = secureServer?.takeIf { it.ready }?.listeningPort
-    val hasViewer get() = server?.hasViewer == true || secureServer?.hasViewer == true
+    val running
+        get() = server?.ready == true
+
+    val httpsReady
+        get() = tls != null && secureServer?.ready == true
+
+    val httpListenerPort
+        get() = server?.takeIf { it.ready }?.listeningPort
+
+    val httpsListenerPort
+        get() = secureServer?.takeIf { it.ready }?.listeningPort
+
+    val hasViewer
+        get() = server?.hasViewer == true || secureServer?.hasViewer == true
+
+    val imageFormat: ImageFormat
+        get() = if (server?.hasViewer == true) server?.imageFormat ?: ImageFormat.JPEG
+            else secureServer?.imageFormat ?: ImageFormat.JPEG
+
     val audio = BrowserAudioBridge()
+    val location = BrowserLocationBridge()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var experienceContext: Context? = null
     private var offlineSubscription: AutoCloseable? = null
-    private val preferenceExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
-        Thread(task, "carplay-preferences").apply { isDaemon = true }
-    }
-    private val offlineMonitor = BrowserOfflineMonitor(mainHandler,
-        { CarPlayBackgroundSession.snapshot()?.controller }, { hasViewer }) { expected ->
-        if (experienceContext != null && CarPlayBackgroundSession.snapshot()?.controller === expected) {
-            CarPlayBackgroundSession.stop { stage = "浏览器离线超时，iPhone 已断开" }
+    private val preferenceExecutor =
+        java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+            Thread(task, "projection-preferences").apply { isDaemon = true }
         }
-    }
+    private val offlineMonitor =
+        BrowserOfflineMonitor(
+            mainHandler,
+            { projectionSessions.snapshot() },
+            { hasViewer },
+        ) { expected ->
+            if (
+                experienceContext != null &&
+                    projectionSessions.snapshot() === expected
+            ) {
+                projectionSessions.stop(expected as ProjectionSession)
+
+            }
+        }
 
     fun viewerStateChanged() {
         val refresh = {
             experienceContext?.let {
-                offlineMonitor.refresh(AirPlayPersistence.loadBrowserOfflinePolicy(it).timeoutMillis)
-                if (hasViewer && !CarPlayBackgroundSession.hasSession() && phoneConnectHandler == null &&
-                    com.shilapi.xcertplay.DiPlayPreferences.autoConnect(it)) backgroundPhoneConnectHandler?.invoke()
+                offlineMonitor.refresh(
+                    AirPlayPersistence.loadBrowserOfflinePolicy(it).timeoutMillis
+                )
             }
             Unit
         }
-        if (Looper.myLooper() == Looper.getMainLooper()) refresh() else mainHandler.post { refresh() }
+        if (Looper.myLooper() == Looper.getMainLooper()) refresh()
+        else mainHandler.post { refresh() }
     }
 
     fun setBrowserOfflinePolicy(context: Context, value: BrowserOfflinePolicy) {
@@ -135,29 +218,36 @@ internal object WebSession {
     }
 
     fun refreshAppearance(context: Context) {
-        val controller = CarPlayBackgroundSession.snapshot()?.controller ?: return
+        val controller = projectionSessions.snapshot() ?: return
         preferenceExecutor.execute {
-            if (CarPlayBackgroundSession.snapshot()?.controller === controller) {
-                val night = AirPlayPersistence.loadAppearance(context).night(isDarkMode(context.resources.configuration.uiMode))
-                controller.setNightMode(night)
+            if (projectionSessions.snapshot() === controller) {
+                val night =
+                    AirPlayPersistence.loadAppearance(context)
+                        .night(isDarkMode(context.resources.configuration.uiMode))
+                projectionSessions.setNightMode(controller, night)
             }
         }
     }
 
     private fun configureAudio(context: Context) {
         val source = AirPlayPersistence.loadMicrophoneSource(context)
-        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context), source == CarPlayMicrophoneSource.BROWSER,
-            AirPlayPersistence.loadMediaBufferMillis(context), source != CarPlayMicrophoneSource.DISABLED)
+        val capabilities = projectionSessions.snapshot()?.capabilities
+        audio.configure(
+            capabilities?.browserAudio == true && AirPlayPersistence.loadBrowserAudioPlayback(context),
+            capabilities?.browserMicrophone == true && source == CarPlayMicrophoneSource.BROWSER,
+            AirPlayPersistence.loadMediaBufferMillis(context),
+            capabilities?.microphone == true && source != CarPlayMicrophoneSource.DISABLED,
+        )
     }
+
     private var phoneConnectHandler: (() -> String)? = null
-    private var backgroundPhoneConnectHandler: (() -> String)? = null
-    fun setBackgroundPhoneConnectHandler(handler: (() -> String)?) { backgroundPhoneConnectHandler = handler }
     private var lastPhoneConnectAt: Long? = null
 
     private var browserDevices: RememberedBrowsers? = null
     private var browserDevicesContext: Context? = null
 
-    @Synchronized fun rememberedBrowsers(context: Context): RememberedBrowsers {
+    @Synchronized
+    fun rememberedBrowsers(context: Context): RememberedBrowsers {
         val application = context.applicationContext
         if (browserDevicesContext !== application) {
             browserDevicesContext = application
@@ -172,7 +262,8 @@ internal object WebSession {
             devices.remove(id)
             server?.pairing?.revokeDevice(id)
         }
-        server?.disconnectUnauthorized(); secureServer?.disconnectUnauthorized()
+        server?.disconnectUnauthorized()
+        secureServer?.disconnectUnauthorized()
     }
 
     fun forgetAllBrowsers(context: Context) {
@@ -181,91 +272,177 @@ internal object WebSession {
             devices.clear()
             server?.pairing?.clear()
         }
-        server?.disconnectViewer(); secureServer?.disconnectViewer()
+        server?.disconnectViewer()
+        secureServer?.disconnectViewer()
     }
 
     // Accessed on the main thread so lifecycle changes and connection requests are ordered.
-    fun setPhoneConnectHandler(handler: (() -> String)?) { phoneConnectHandler = handler }
+    private var backgroundPhoneConnectHandler: (() -> String)? = null
+    fun setBackgroundPhoneConnectHandler(handler: (() -> String)?) { backgroundPhoneConnectHandler = handler }
+    fun setPhoneConnectHandler(handler: (() -> String)?) {
+        phoneConnectHandler = handler
+    }
 
-    fun requestPhoneConnection(reply: (String) -> Unit) {
+    fun requestPhoneConnection(context: Context, reply: (String) -> Unit) {
         mainHandler.post {
             val now = SystemClock.elapsedRealtime()
-            val message = when {
-                CarPlayBackgroundSession.hasSession() -> "iPhone 会话已启动，请等待连接完成"
-                phoneConnectHandler == null && backgroundPhoneConnectHandler == null -> "请先将 Android 上的 WheelPlay 打开到前台，再点击连接 iPhone"
-                lastPhoneConnectAt?.let { now - it < 3000 } == true -> "连接请求已提交，请稍候"
-                else -> {
-                    lastPhoneConnectAt = now
-                    runCatching { (phoneConnectHandler ?: backgroundPhoneConnectHandler)!!.invoke() }
-                        .getOrElse { "无法启动连接，请在 Android 上检查连接设置" }
+            val message =
+                when {
+                    projectionSessions.hasSession() ->
+                        context.getString(
+                            UiR.string.projection_busy
+                        )
+                    phoneConnectHandler == null && backgroundPhoneConnectHandler == null ->
+                        context.getString(
+                            UiR.string.ui_bring_wheelplay_to_the_foreground_on_android_then_tap
+                        )
+                    lastPhoneConnectAt?.let { now - it < 3000 } == true ->
+                        context.getString(UiR.string.ui_connection_requested_please_wait)
+                    else -> {
+                        lastPhoneConnectAt = now
+                        runCatching { (phoneConnectHandler ?: backgroundPhoneConnectHandler)!!.invoke() }
+                            .getOrElse {
+                                context.getString(
+                                    UiR.string
+                                        .ui_could_not_start_connection_check_connection_settings_on_android
+                                )
+                            }
+                    }
                 }
-            }
             reply(message)
         }
     }
 
-    @Synchronized fun start(context: Context) {
+    @Synchronized
+    fun start(context: Context) {
         if (server?.ready == true) return
         if (server != null) stop()
-        if (runCatching { DiPlayBootstrap.ensure(context) }.isFailure) {
-            error = "认证资源未就绪，请先在设置中导入认证资源"
-            return
-        }
         adaptiveBrowserSize = AirPlayPersistence.loadAdaptiveBrowserSize(context)
         configureAudio(context)
         code = (100000 + SecureRandom().nextInt(900000)).toString()
         val port = WebListenSettings.httpPort(context)
         val next = LanWebServer(context.applicationContext, code, port)
         try {
-            next.start(5000, true); server = next; httpPort = port; error = null
-            refreshMdns(context)
+            next.start(5000, true)
+            server = next
+            httpPort = port
+            error = null
+            mdns = if (WebListenSettings.mdnsEnabled(context)) WebMdns(context.applicationContext) else null
             experienceContext = context.applicationContext
-            offlineSubscription = CarPlayBackgroundSession.subscribe { viewerStateChanged() }
+            var previousSource = inputSession
+            offlineSubscription = projectionSessions.subscribe {
+                val changed = synchronized(this) {
+                    // Read under the configuration lock: a delayed notification cannot restore an old route.
+                    val current = projectionSessions.snapshot()
+                    if (previousSource === current) false else {
+                        touch.reset()
+                        inputSession = current
+                        if (current == null) {
+                            stageText = UiText(UiR.string.projection_waiting)
+                            endVideo(generation)
+                        }
+                        previousSource = current
+                        true
+                    }
+                }
+                if (changed) {
+                    // Versionless clients cannot distinguish old touches after a source switch.
+                    server?.disconnectViewer()
+                    secureServer?.disconnectViewer()
+                    configureAudio(context)
+                    refreshAppearance(context)
+                }
+                viewerStateChanged()
+            }
             httpsPort = WebListenSettings.httpsPort(context)
             tlsError = null
             TeslaHttpCompatibility.start(context)
             val token = ++serverGeneration
             if (!WebListenSettings.httpsEnabled(context)) return
-            Thread({
-                var secure: LanWebServer? = null
-                try {
-                    val endpoint = createTls(context.applicationContext)
-                    synchronized(this) {
-                        if (serverGeneration != token || server == null || !WebListenSettings.httpsEnabled(context)) return@Thread
-                        secure = LanWebServer(context.applicationContext, code, httpsPort, true, next.pairing)
-                        secure!!.makeSecure(endpoint.sockets, null)
-                        secure!!.start(5000, true)
-                        secureServer = secure; tls = endpoint; tlsError = null
-                        TeslaHttpCompatibility.retry()
-                    }
-                } catch (error: Exception) {
-                    secure?.stopPreservingPairing()
-                    synchronized(this) { if (serverGeneration == token) tlsError = "HTTPS 启动失败：${error.message ?: error.javaClass.simpleName}" }
+            Thread(
+                    {
+                        var secure: LanWebServer? = null
+                        try {
+                            val endpoint = createTls(context.applicationContext)
+                            synchronized(this) {
+                                if (
+                                    serverGeneration != token ||
+                                        server == null ||
+                                        !WebListenSettings.httpsEnabled(context)
+                                )
+                                    return@Thread
+                                secure =
+                                    LanWebServer(
+                                        context.applicationContext,
+                                        code,
+                                        httpsPort,
+                                        true,
+                                        next.pairing,
+                                    )
+                                secure!!.makeSecure(endpoint.sockets, null)
+                                secure!!.start(5000, true)
+                                secureServer = secure
+                                tls = endpoint
+                                tlsError = null
+                                TeslaHttpCompatibility.retry()
+                            }
+                        } catch (error: Exception) {
+                            secure?.stopPreservingPairing()
+                            synchronized(this) {
+                                if (serverGeneration == token)
+                                    tlsError =
+                                        context.getString(
+                                            UiR.string.error_https_start,
+                                            error.userMessage(context),
+                                        )
+                            }
+                        }
+                    },
+                    "wheelplay-lan-tls",
+                )
+                .apply {
+                    isDaemon = true
+                    start()
                 }
-            }, "wheelplay-lan-tls").apply { isDaemon = true; start() }
+        } catch (e: Exception) {
+            next.stop()
+            error = context.getString(UiR.string.error_listener_start, port, e.userMessage(context))
         }
-        catch (e: Exception) { next.stop(); error = "$port 端口启动失败：${e.message ?: e.javaClass.simpleName}" }
     }
 
     /** Bind before releasing the old listener, preserving media and pairing on failure. */
-    @Synchronized fun setHttpPort(context: Context, port: Int): String? {
-        if (port !in 1024..65535) return "Web HTTP 监听端口必须为 1024–65535"
-        if (port == WebListenSettings.httpsPort(context)) return "HTTP 与 HTTPS 不能使用相同端口"
+    @Synchronized
+    fun setHttpPort(context: Context, port: Int): String? {
+        if (port !in 1024..65535)
+            return context.getString(UiR.string.ui_web_http_listener_port_must_be_between_1024_and)
+        if (port == WebListenSettings.httpsPort(context))
+            return context.getString(UiR.string.ui_http_and_https_cannot_use_the_same_port)
         val current = server
         val previousPort = httpPort
         if (current != null && port != httpPort) {
-            val next = LanWebServer(context.applicationContext, code, port, pairing = current.pairing)
+            val next =
+                LanWebServer(context.applicationContext, code, port, pairing = current.pairing)
             try {
                 next.start(5000, true)
                 WebListenSettings.saveHttpPort(context, port)
             } catch (e: Exception) {
                 next.stopPreservingPairing()
-                return "$port 端口启动失败：${e.message ?: e.javaClass.simpleName}；原端口 $httpPort 继续运行"
+                return context.getString(
+                    UiR.string.error_listener_start_kept_previous,
+                    port,
+                    e.userMessage(context),
+                    httpPort,
+                )
             }
-            try { current.stopPreservingPairing() }
-            catch (error: Exception) {
+            try {
+                current.stopPreservingPairing()
+            } catch (error: Exception) {
                 runCatching { next.stopPreservingPairing() }
-                this.error = "原端口规则清理失败，请检查规则或重新启动设备：${error.message}"
+                this.error =
+                    context.getString(
+                        UiR.string.ui_could_not_clean_up_the_original_port_rules_check,
+                        error.userMessage(context),
+                    )
                 return this.error
             }
             server = next
@@ -273,89 +450,154 @@ internal object WebSession {
         }
         if (current == null || port == previousPort) WebListenSettings.saveHttpPort(context, port)
         httpPort = port
-        mdns?.refreshNow()
         TeslaHttpCompatibility.retry()
         return null
     }
 
     fun setHttpsPort(context: Context, port: Int): String? {
-        if (port !in 1024..65535) return "Web HTTPS 监听端口必须为 1024–65535"
-        if (port == WebListenSettings.httpPort(context)) return "HTTP 与 HTTPS 不能使用相同端口"
+        if (port !in 1024..65535)
+            return context.getString(UiR.string.ui_web_https_listener_port_must_be_between_1024_and)
+        if (port == WebListenSettings.httpPort(context))
+            return context.getString(UiR.string.ui_http_and_https_cannot_use_the_same_port)
         return runCatching {
-            if (!WebListenSettings.httpsEnabled(context)) {
-                WebListenSettings.saveHttpsPort(context, port); httpsPort = port; return null
+                if (!WebListenSettings.httpsEnabled(context)) {
+                    WebListenSettings.saveHttpsPort(context, port)
+                    httpsPort = port
+                    return null
+                }
+                val endpoint = tls ?: createTls(context)
+                replaceHttps(context, port, endpoint) {
+                        WebListenSettings.saveHttpsPort(context, port)
+                    }
+                    .also { if (it == null) TeslaHttpCompatibility.retry() }
             }
-            val endpoint = tls ?: createTls(context)
-            replaceHttps(context, port, endpoint) { WebListenSettings.saveHttpsPort(context, port) }
-                .also { if (it == null) TeslaHttpCompatibility.retry() }
-        }.getOrElse { "HTTPS 配置失败：${it.message ?: it.javaClass.simpleName}" }
+            .getOrElse {
+                context.getString(UiR.string.error_https_configuration, it.userMessage(context))
+            }
     }
 
     fun installCertificate(context: Context, prepared: LanTls.Prepared): String? =
-        replaceHttps(context, WebListenSettings.httpsPort(context), prepared.endpoint) { LanTls.saveCustom(context, prepared) }
-
-    @Synchronized fun setHttpsEnabled(context: Context, enabled: Boolean): String? = runCatching {
-        if (enabled) {
-            replaceHttps(context, WebListenSettings.httpsPort(context), tls ?: createTls(context), activate = true) {
-                WebListenSettings.saveHttpsEnabled(context, true)
-            }.also { if (it == null) TeslaHttpCompatibility.retry() }
-        } else {
-            WebListenSettings.saveHttpsEnabled(context, false)
-            serverGeneration++
-            val old = secureServer; secureServer = null; tls = null; tlsError = null
-            old?.stopPreservingPairing()
-            TeslaHttpCompatibility.retry()
-            null
+        replaceHttps(context, WebListenSettings.httpsPort(context), prepared.endpoint) {
+            LanTls.saveCustom(context, prepared)
         }
-    }.getOrElse { "HTTPS 开关更新失败：${it.message ?: it.javaClass.simpleName}" }
 
-    fun setHostname(context: Context, hostname: String): String? = runCatching {
-        WebListenSettings.saveHostname(context, hostname)
-        refreshGeneratedCertificate(context)
-        null
-    }.getOrElse { it.message ?: "Web 域名保存失败" }
+    @Synchronized
+    fun setHttpsEnabled(context: Context, enabled: Boolean): String? =
+        runCatching {
+                if (enabled) {
+                    replaceHttps(
+                            context,
+                            WebListenSettings.httpsPort(context),
+                            tls ?: createTls(context),
+                            activate = true,
+                        ) {
+                            WebListenSettings.saveHttpsEnabled(context, true)
+                        }
+                        .also { if (it == null) TeslaHttpCompatibility.retry() }
+                } else {
+                    WebListenSettings.saveHttpsEnabled(context, false)
+                    serverGeneration++
+                    val old = secureServer
+                    secureServer = null
+                    tls = null
+                    tlsError = null
+                    old?.stopPreservingPairing()
+                    TeslaHttpCompatibility.retry()
+                    null
+                }
+            }
+            .getOrElse { context.getString(UiR.string.error_https_toggle, it.userMessage(context)) }
+
+    fun setHostname(context: Context, hostname: String): String? =
+        runCatching {
+                WebListenSettings.saveHostname(context, hostname)
+                refreshGeneratedCertificate(context)
+                null
+            }
+            .getOrElse { it.userMessage(context) }
+
+    @Synchronized
+    fun setMdnsHostname(context: Context, hostname: String): String? =
+        runCatching {
+                WebListenSettings.saveMdnsHostname(context, hostname)
+                mdns?.close()
+                mdns = if (server != null && WebListenSettings.mdnsEnabled(context)) WebMdns(context.applicationContext) else null
+                null
+            }
+            .getOrElse {
+                it.userMessage(context).ifEmpty {
+                    context.getString(R.string.settings_mdns_save_failed)
+                }
+            }
 
     @Synchronized fun setMdnsEnabled(context: Context, enabled: Boolean): String? = runCatching {
         WebListenSettings.saveMdnsEnabled(context, enabled)
-        refreshMdns(context)
+        mdns?.close()
+        mdns = if (server != null && enabled) WebMdns(context.applicationContext) else null
         null
-    }.getOrElse { it.message ?: "mDNS 开关保存失败" }
+    }.getOrElse { it.message ?: "mDNS configuration failed" }
 
-    @Synchronized fun setMdnsHostname(context: Context, hostname: String): String? = runCatching {
-        WebListenSettings.saveMdnsHostname(context, hostname)
-        mdns?.refreshNow()
-        null
-    }.getOrElse { it.message ?: "mDNS 域名保存失败" }
-
-    private fun refreshMdns(context: Context) {
-        if (!WebListenSettings.mdnsEnabled(context) || !running) {
-            mdns?.close(); mdns = null
-        } else if (mdns == null) mdns = WebMdns(context.applicationContext)
-    }
-
-    fun restoreDefaultCertificate(context: Context): String? = runCatching {
-        val config = TeslaHttpCompatibility.config(context)
-        val endpoint = LanTls.createDefault(context, (addresses(context).map { it.address } + config.accessAddress).distinct(), WebListenSettings.hostname(context))
-        replaceHttps(context, WebListenSettings.httpsPort(context), endpoint) { LanTls.clearCustom(context) }
-    }.getOrElse { "默认 HTTPS 证书恢复失败：${it.message ?: it.javaClass.simpleName}" }
+    fun restoreDefaultCertificate(context: Context): String? =
+        runCatching {
+                val config = TeslaHttpCompatibility.config(context)
+                val endpoint =
+                    LanTls.createDefault(
+                        context,
+                        (addresses(context).map { it.address } + config.accessAddress).distinct(),
+                        WebListenSettings.hostname(context),
+                    )
+                replaceHttps(context, WebListenSettings.httpsPort(context), endpoint) {
+                    LanTls.clearCustom(context)
+                }
+            }
+            .getOrElse {
+                context.getString(
+                    UiR.string.error_default_certificate_restore,
+                    it.userMessage(context),
+                )
+            }
 
     private fun createTls(context: Context): LanTls.Endpoint {
         val config = TeslaHttpCompatibility.config(context)
-        return LanTls.create(context, (addresses(context).map { it.address } + config.accessAddress).distinct(), WebListenSettings.hostname(context))
+        return LanTls.create(
+            context,
+            (addresses(context).map { it.address } + config.accessAddress).distinct(),
+            WebListenSettings.hostname(context),
+        )
     }
 
-    /** A changed port binds first. Certificate replacement on the same port rolls back on failure. */
-    @Synchronized private fun replaceHttps(context: Context, port: Int, endpoint: LanTls.Endpoint, activate: Boolean = false, persist: () -> Unit): String? {
+    /**
+     * A changed port binds first. Certificate replacement on the same port rolls back on failure.
+     */
+    @Synchronized
+    private fun replaceHttps(
+        context: Context,
+        port: Int,
+        endpoint: LanTls.Endpoint,
+        activate: Boolean = false,
+        persist: () -> Unit,
+    ): String? {
         val http = server
-        if (http == null || !activate && !WebListenSettings.httpsEnabled(context)) return runCatching { persist(); httpsPort = port; null }
-            .getOrElse { "HTTPS 配置保存失败：${it.javaClass.simpleName}" }
-        if (port == httpPort) return "HTTP 与 HTTPS 不能使用相同端口"
+        if (http == null || !activate && !WebListenSettings.httpsEnabled(context))
+            return runCatching {
+                    persist()
+                    httpsPort = port
+                    null
+                }
+                .getOrElse {
+                    context.getString(UiR.string.error_https_settings_save, it.javaClass.simpleName)
+                }
+        if (port == httpPort)
+            return context.getString(UiR.string.ui_http_and_https_cannot_use_the_same_port)
         val old = secureServer
         val oldTls = tls
         val oldPort = httpsPort
         val samePort = old != null && oldPort == port
         val next = LanWebServer(context.applicationContext, code, port, true, http.pairing)
-        if (samePort) { old!!.stopPreservingPairing(); secureServer = null }
+        if (samePort) {
+            old!!.stopPreservingPairing()
+            secureServer = null
+        }
         try {
             next.makeSecure(endpoint.sockets, null)
             next.start(5000, true)
@@ -363,55 +605,105 @@ internal object WebSession {
         } catch (error: Exception) {
             next.stopPreservingPairing()
             if (samePort && oldTls != null) {
-                val restored = LanWebServer(context.applicationContext, code, oldPort, true, http.pairing)
+                val restored =
+                    LanWebServer(context.applicationContext, code, oldPort, true, http.pairing)
                 try {
-                    restored.makeSecure(oldTls.sockets, null); restored.start(5000, true)
+                    restored.makeSecure(oldTls.sockets, null)
+                    restored.start(5000, true)
                     secureServer = restored
                 } catch (_: Exception) {
-                    restored.stopPreservingPairing(); tls = null
-                    tlsError = "HTTPS 原监听器恢复失败，请重新启动服务"
-                    return "HTTPS 更新失败，原证书和端口配置保留；请重新启动服务"
+                    restored.stopPreservingPairing()
+                    tls = null
+                    tlsError =
+                        context.getString(
+                            UiR.string.ui_could_not_restore_the_previous_https_listener_restart_the
+                        )
+                    return context.getString(
+                        UiR.string.ui_https_update_failed_original_certificate_and_ports_were_kept
+                    )
                 }
             }
-            return "HTTPS 更新失败：${error.message ?: error.javaClass.simpleName}；原配置保留"
+            return context.getString(
+                UiR.string.error_https_update_kept_previous,
+                error.userMessage(context),
+            )
         }
         serverGeneration++ // Discard older initialization only after a successful replacement.
-        secureServer = next; tls = endpoint; httpsPort = port; tlsError = null
+        secureServer = next
+        tls = endpoint
+        httpsPort = port
+        tlsError = null
         if (!samePort) old?.stopPreservingPairing()
         return null
     }
 
     fun refreshGeneratedCertificate(context: Context) {
-        val generation = synchronized(this) { if (server == null || !WebListenSettings.httpsEnabled(context) || LanTls.hasCustom(context)) return; serverGeneration }
-        val hostname = WebListenSettings.hostname(context)
-        Thread({
-            val config = TeslaHttpCompatibility.config(context)
-            val result = runCatching { createTls(context) }
+        val generation =
             synchronized(this) {
-                if (serverGeneration != generation || server == null || LanTls.hasCustom(context) ||
-                    TeslaHttpCompatibility.config(context) != config || WebListenSettings.hostname(context) != hostname ||
-                    !WebListenSettings.httpsEnabled(context)) return@Thread
-                result.onSuccess { replaceHttps(context, httpsPort, it) {} }
-                    .onFailure { tlsError = "HTTPS 证书刷新失败：${it.javaClass.simpleName}" }
+                if (
+                    server == null ||
+                        !WebListenSettings.httpsEnabled(context) ||
+                        LanTls.hasCustom(context)
+                )
+                    return
+                serverGeneration
             }
-        }, "https-address-refresh").apply { isDaemon = true; start() }
+        val hostname = WebListenSettings.hostname(context)
+        Thread(
+                {
+                    val config = TeslaHttpCompatibility.config(context)
+                    val result = runCatching { createTls(context) }
+                    synchronized(this) {
+                        if (
+                            serverGeneration != generation ||
+                                server == null ||
+                                LanTls.hasCustom(context) ||
+                                TeslaHttpCompatibility.config(context) != config ||
+                                WebListenSettings.hostname(context) != hostname ||
+                                !WebListenSettings.httpsEnabled(context)
+                        )
+                            return@Thread
+                        result
+                            .onSuccess { replaceHttps(context, httpsPort, it) {} }
+                            .onFailure {
+                                tlsError =
+                                    context.getString(
+                                        UiR.string.error_certificate_refresh,
+                                        it.javaClass.simpleName,
+                                    )
+                            }
+                    }
+                },
+                "https-address-refresh",
+            )
+            .apply {
+                isDaemon = true
+                start()
+            }
     }
 
-    @Synchronized fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
+    @Synchronized
+    fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
         AirPlayPersistence.saveBrowserAudioPlayback(context, enabled)
         configureAudio(context)
     }
 
-    @Synchronized fun setBrowserMicrophone(context: Context, enabled: Boolean) {
-        setMicrophoneSource(context, if (enabled) CarPlayMicrophoneSource.BROWSER else CarPlayMicrophoneSource.ANDROID)
+    @Synchronized
+    fun setBrowserMicrophone(context: Context, enabled: Boolean) {
+        setMicrophoneSource(
+            context,
+            if (enabled) CarPlayMicrophoneSource.BROWSER else CarPlayMicrophoneSource.ANDROID,
+        )
     }
 
-    @Synchronized fun setMicrophoneSource(context: Context, source: CarPlayMicrophoneSource) {
+    @Synchronized
+    fun setMicrophoneSource(context: Context, source: CarPlayMicrophoneSource) {
         AirPlayPersistence.saveMicrophoneSource(context, source)
         configureAudio(context)
     }
 
-    @Synchronized fun setMediaBufferMillis(context: Context, millis: Int) {
+    @Synchronized
+    fun setMediaBufferMillis(context: Context, millis: Int) {
         AirPlayPersistence.saveMediaBufferMillis(context, millis)
         configureAudio(context)
     }
@@ -429,8 +721,11 @@ internal object WebSession {
     }
 
     fun reportBrowserViewport(width: Int, height: Int): Boolean {
-        if (width !in MIN_VIEWPORT_PIXELS..MAX_VIEWPORT_PIXELS ||
-            height !in MIN_VIEWPORT_PIXELS..MAX_VIEWPORT_PIXELS) return false
+        if (
+            width !in MIN_VIEWPORT_PIXELS..MAX_VIEWPORT_PIXELS ||
+                height !in MIN_VIEWPORT_PIXELS..MAX_VIEWPORT_PIXELS
+        )
+            return false
         val ratio = width.toDouble() / height
         if (ratio !in MIN_VIEWPORT_ASPECT..MAX_VIEWPORT_ASPECT) return false
         val size = width to height
@@ -441,6 +736,7 @@ internal object WebSession {
 
     @Synchronized
     fun beginVideo(w: Int, h: Int): Long {
+        touch.cancel()
         if (mediaEnded) mediaSessionId = SecureRandom().nextLong().ushr(11)
         mediaEnded = false
         videoSource?.detach()
@@ -451,15 +747,24 @@ internal object WebSession {
         videoActive = false
         return ++generation
     }
-    @Synchronized fun attachVideoSource(owner: Long, source: WebVideoSource) {
+
+    @Synchronized
+    fun setVideoActive(owner: Long, active: Boolean) {
+        if (owner == generation && !mediaEnded) videoActive = active
+    }
+
+    @Synchronized
+    fun attachVideoSource(owner: Long, source: WebVideoSource) {
         if (owner == generation) videoSource = source
     }
-    fun publish(owner: Long, jpeg: ByteArray) {
+
+    fun publish(owner: Long, jpeg: ByteArray, format: ImageFormat = ImageFormat.JPEG,
+        quality: Int = ImageEncodingOptions.DEFAULT_QUALITY) {
         val endpoint =
             synchronized(this) {
                 if (owner != generation || server == null) return
                 frame = Frame(jpeg, SystemClock.elapsedRealtime(), ++sequence,
-                    mediaSessionId, generation, width, height)
+                    mediaSessionId, generation, width, height, format, quality)
                 server
             }
         // Notify outside the session monitor; encoding never waits for a socket write.
@@ -469,7 +774,8 @@ internal object WebSession {
 
     @Synchronized
     fun endVideo(owner: Long) {
-        if (owner == generation) {
+        if (owner == generation && !mediaEnded) {
+            touch.cancel()
             mediaEnded = true
             videoSource?.detach()
             videoSource = null
@@ -485,35 +791,58 @@ internal object WebSession {
         mdns?.close()
         mdns = null
         experienceContext = null
-        offlineSubscription?.close(); offlineSubscription = null
+        offlineSubscription?.close()
+        offlineSubscription = null
+        inputSession = null
         if (Looper.myLooper() == Looper.getMainLooper()) offlineMonitor.close()
         else mainHandler.post { if (experienceContext == null) offlineMonitor.close() }
         serverGeneration++
         TeslaHttpCompatibility.stop()
-        val oldSecure = secureServer; secureServer = null
+        val oldSecure = secureServer
+        secureServer = null
         val cleanupError = runCatching { oldSecure?.stop() }.exceptionOrNull()
-        tls = null; tlsError = cleanupError?.message
-        videoSource?.detach(); videoSource = null
-        val old = server; server = null
+        tls = null
+        tlsError = cleanupError?.message
+        videoSource?.detach()
+        videoSource = null
+        val old = server
+        server = null
         runCatching { old?.stop() }.exceptionOrNull()?.let { error = it.message }
         browserViewport = null
-        frame = null; videoActive = false; code = ""; generation++
+        frame = null
+        videoActive = false
+        code = ""
+        generation++
     }
 
     fun inspectPairing(payload: String) = server?.pairing?.inspect(payload)
+
     fun approvePairing(payload: String) = server?.pairing?.approve(payload) == true
 
     fun addresses(context: Context): List<LanAddresses.Entry> {
         val status = TeslaHttpCompatibility.status
-        return LanAddresses.discover(context, status.address, WebListenSettings.hostname(context), httpPort, status.httpMappingPort, status.mode)
+        return LanAddresses.discover(
+            context,
+            status.address,
+            WebListenSettings.hostname(context),
+            httpPort,
+            status.httpMappingPort,
+            status.mode,
+        )
     }
 
-    fun httpsPortFor(context: Context, authority: String?, status: com.shilapi.xcertplay.network.TeslaHttpStatus = TeslaHttpCompatibility.status): Int {
+    fun httpsPortFor(
+        context: Context,
+        authority: String?,
+        status: com.shilapi.xcertplay.network.TeslaHttpStatus = TeslaHttpCompatibility.status,
+    ): Int {
         val host = runCatching { java.net.URI("http://$authority") }.getOrNull() ?: return httpsPort
         val http = if (host.port < 0) 80 else host.port
         return status.httpsMappingPort?.takeIf {
-            status.address != null && http == status.httpMappingPort &&
-                (host.host == status.address || host.host?.equals(WebListenSettings.hostname(context), true) == true)
+            status.address != null &&
+                http == status.httpMappingPort &&
+                (host.host == status.address ||
+                    host.host?.equals(WebListenSettings.hostname(context), true) == true)
         } ?: httpsPort
     }
 

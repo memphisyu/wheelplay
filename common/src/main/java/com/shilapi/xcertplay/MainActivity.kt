@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.mfi.MfiProtocolMajorResult
 import com.shilapi.xcertplay.mfi.MfiSelfCheck
 import com.shilapi.xcertplay.mfi.MfiSelfCheckResult
+import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.transport.LinuxI2cTransport
 import com.shilapi.xcertplay.ui.theme.XcertplayTheme
 import java.util.concurrent.ExecutorService
@@ -44,12 +45,12 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(padding).padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("Board I2C diagnostic")
+                        Text(getString(UiR.string.ui_board_i2c_diagnostic))
                         OutlinedTextField(
                             value = devicePath,
                             onValueChange = { devicePath = it },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Linux I2C device") },
+                            label = { Text(getString(UiR.string.ui_linux_i2c_device)) },
                             singleLine = true,
                             enabled = status !is DiagnosticStatus.Running,
                         )
@@ -57,11 +58,16 @@ class MainActivity : ComponentActivity() {
                             onClick = { runSelfCheck(devicePath) },
                             enabled = status !is DiagnosticStatus.Running,
                         ) {
-                            Text("Run MFi self-check")
+                            Text(getString(UiR.string.ui_run_mfi_self_check))
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text(status.message())
-                        Text("CH341 requires deployment-specific VID/PID configuration.")
+                        Text(status.message(this@MainActivity))
+                        Text(
+                            getString(
+                                UiR.string
+                                    .ui_ch341_requires_deployment_specific_vid_pid_configuration
+                            )
+                        )
                     }
                 }
             }
@@ -76,47 +82,59 @@ class MainActivity : ComponentActivity() {
     private fun runSelfCheck(devicePath: String) {
         status = DiagnosticStatus.Running
         executor.execute {
-            val next = try {
-                LinuxI2cTransport.open(devicePath).use { MfiSelfCheck(it).run() }
-                    .let { DiagnosticStatus.Result(it) }
-            } catch (error: LinkageError) {
-                DiagnosticStatus.Failure(error.message ?: "I2C native library is unavailable")
-            } catch (error: Exception) {
-                DiagnosticStatus.Failure(error.message ?: error.javaClass.simpleName)
-            }
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed) status = next
-            }
+            val next =
+                try {
+                    LinuxI2cTransport.open(devicePath)
+                        .use { MfiSelfCheck(it).run() }
+                        .let { DiagnosticStatus.Result(it) }
+                } catch (error: LinkageError) {
+                    DiagnosticStatus.Failure(
+                        error.message ?: getString(UiR.string.ui_i2c_native_library_is_unavailable)
+                    )
+                } catch (error: Exception) {
+                    DiagnosticStatus.Failure(error.message ?: error.javaClass.simpleName)
+                }
+            runOnUiThread { if (!isFinishing && !isDestroyed) status = next }
         }
     }
 }
 
 private sealed class DiagnosticStatus {
     data object Idle : DiagnosticStatus()
+
     data object Running : DiagnosticStatus()
+
     data class Result(val selfCheck: MfiSelfCheckResult) : DiagnosticStatus()
+
     data class Failure(val message: String) : DiagnosticStatus()
 
-    fun message(): String = when (this) {
-        Idle -> "Idle"
-        Running -> "Running…"
-        is Failure -> "Failed: $message"
-        is Result -> {
-            val chip = selfCheck.chip ?: return if (selfCheck.discovery.interrupted) {
-                "MFi scan interrupted"
-            } else {
-                "Found: none"
+    fun message(context: android.content.Context): String =
+        when (this) {
+            Idle -> context.getString(UiR.string.ui_idle)
+            Running -> context.getString(UiR.string.ui_running)
+            is Failure -> context.getString(UiR.string.diagnostic_failure, message)
+            is Result -> {
+                val chip =
+                    selfCheck.chip
+                        ?: return if (selfCheck.discovery.interrupted) {
+                            context.getString(UiR.string.ui_mfi_scan_interrupted)
+                        } else {
+                            context.getString(UiR.string.ui_found_none)
+                        }
+                val major =
+                    when (val result = chip.protocolMajor) {
+                        is MfiProtocolMajorResult.Value -> "%d".format(result.major)
+                        is MfiProtocolMajorResult.MfiFailure ->
+                            result.error.message ?: result.error.javaClass.simpleName
+                        is MfiProtocolMajorResult.TransportFailure ->
+                            result.error.message ?: result.error.javaClass.simpleName
+                    }
+                context.getString(
+                    UiR.string.diagnostic_mfi_found,
+                    chip.address7Bit,
+                    chip.deviceVersion,
+                    major,
+                )
             }
-            val major = when (val result = chip.protocolMajor) {
-                is MfiProtocolMajorResult.Value -> "%d".format(result.major)
-                is MfiProtocolMajorResult.MfiFailure -> result.error.message ?: result.error.javaClass.simpleName
-                is MfiProtocolMajorResult.TransportFailure -> result.error.message ?: result.error.javaClass.simpleName
-            }
-            "Found: 0x%02X; device version: 0x%02X; protocol major (raw): %s".format(
-                chip.address7Bit,
-                chip.deviceVersion,
-                major,
-            )
         }
-    }
 }

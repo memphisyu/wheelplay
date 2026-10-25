@@ -1,10 +1,16 @@
 package com.shilapi.xcertplay.web
 
-/** A grace period for recoverable interruptions, not a video buffering budget. */
-enum class RtcRecoveryPolicy(val graceMs: Long, val label: String) {
-    QUICK(4_000, "4 秒 · 快速回退"),
-    BALANCED(10_000, "10 秒 · 默认"),
-    PATIENT(30_000, "30 秒 · 优先保持 WebRTC");
+import com.shilapi.xcertplay.shared.R as UiR
 
-    val firstFrameMs get() = maxOf(10_000L, graceMs)
+/** A grace period for recoverable interruptions, not a video buffering budget. */
+enum class RtcRecoveryPolicy(
+    val graceMs: Long,
+    @param:androidx.annotation.StringRes val labelRes: Int,
+) {
+    QUICK(4_000, UiR.string.ui_4_seconds_fast_fallback),
+    BALANCED(10_000, UiR.string.ui_10_seconds_default),
+    PATIENT(30_000, UiR.string.ui_30_seconds_keep_webrtc_longer);
+
+    val firstFrameMs
+        get() = maxOf(10_000L, graceMs)
 }

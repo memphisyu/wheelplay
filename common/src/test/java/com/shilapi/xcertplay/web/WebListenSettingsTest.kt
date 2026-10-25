@@ -14,6 +14,18 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class WebListenSettingsTest {
+    @Test fun mdnsOptInPersistsWithoutChangingListeners() {
+        val context = RuntimeEnvironment.getApplication()
+        assertFalse(WebListenSettings.mdnsEnabled(context))
+        val http = WebListenSettings.httpPort(context)
+        val https = WebListenSettings.httpsPort(context)
+        WebListenSettings.saveMdnsEnabled(context, true)
+        assertTrue(WebListenSettings.mdnsEnabled(context))
+        WebListenSettings.saveMdnsEnabled(context, false)
+        assertFalse(WebListenSettings.mdnsEnabled(context))
+        assertEquals(http, WebListenSettings.httpPort(context))
+        assertEquals(https, WebListenSettings.httpsPort(context))
+    }
     @Test fun mdnsNameDefaultsAndAcceptsOnlySingleLocalLabel() {
         val context = RuntimeEnvironment.getApplication()
         assertEquals("wheelplay.local", WebListenSettings.mdnsHostname(context))
@@ -25,25 +37,6 @@ class WebListenSettingsTest {
             assertTrue(runCatching { WebListenSettings.saveMdnsHostname(context, name) }.isFailure)
         }
     }
-    @Test fun mdnsOptInAndNameAreIndependentOfTrustedHostnameAndPorts() {
-        val context = RuntimeEnvironment.getApplication()
-        assertFalse(WebListenSettings.mdnsEnabled(context))
-        WebListenSettings.saveHostname(context, "memphis.example.com")
-        WebListenSettings.saveHttpPort(context, 9090)
-        WebListenSettings.saveHttpsPort(context, 9443)
-        assertNull(WebSession.setMdnsEnabled(context, true))
-        assertNull(WebSession.setMdnsHostname(context, "padmini.local"))
-        assertTrue(WebListenSettings.mdnsEnabled(context))
-        assertEquals("padmini.local", WebListenSettings.mdnsHostname(context))
-        assertEquals("memphis.example.com", WebListenSettings.hostname(context))
-        assertEquals(9090, WebListenSettings.httpPort(context))
-        assertEquals(9443, WebListenSettings.httpsPort(context))
-        assertNotNull(WebSession.setMdnsHostname(context, "other.example.com"))
-        assertEquals("padmini.local", WebListenSettings.mdnsHostname(context))
-        assertNull(WebSession.setMdnsEnabled(context, false))
-        assertFalse(WebListenSettings.mdnsEnabled(context))
-    }
-
     @Before fun startWithoutRootAuthorization() {
         val original = RootAccess.authorize
         try {

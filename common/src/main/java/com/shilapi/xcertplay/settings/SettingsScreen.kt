@@ -191,6 +191,7 @@ private fun SettingsIndexScreen(
             )
         }
     }
+    CommunitySection()
 }
 
 @Preview(name = "Settings", locale = "zh", widthDp = 360, heightDp = 800)

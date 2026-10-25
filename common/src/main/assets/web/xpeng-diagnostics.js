@@ -12,7 +12,7 @@ export function createXpengDiagnostics({ browserAudio, browserMedia, audio, stat
   el('probe-start').addEventListener('click', () => { probe.start(); render(); });
   el('probe-stop').addEventListener('click', () => { probe.stop('user'); render(); });
   el('probe-visible').addEventListener('change', () => { el('probe-audio').hidden = !el('probe-visible').checked; });
-  el('media-panel-close').addEventListener('click', () => { probe.stop('close'); panel.hidden = true; });
+  el('media-panel-close').addEventListener('click', () => { probe.stop('close'); panel.hidden = true; output.hidden = true; });
   for (const button of document.querySelectorAll?.('[data-media-action]') || []) button.addEventListener('click', () => {
     const action = button.dataset.mediaAction;
     if (probe.active) probe.action(action, 'page'); else browserMedia.trigger(action);

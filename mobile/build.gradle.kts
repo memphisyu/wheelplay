@@ -1,5 +1,3 @@
-import java.util.zip.ZipFile
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -68,3 +66,22 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
+
+// Public XPENG builds import authentication and HTTPS identity at runtime only.
+val publicCredentialAssets = files(android.sourceSets.flatMap { source ->
+    source.assets.directories.map { directory ->
+        fileTree(directory) {
+            include("**/offline-mfi/**", "**/*.pk8", "**/*.p7b", "**/*.key",
+                "**/*.pem", "**/*.p12", "**/*.pfx", "**/*.jks", "**/*.keystore")
+        }
+    }
+})
+val rejectBundledCredentials by tasks.registering {
+    group = "verification"
+    val assetsToCheck = publicCredentialAssets
+    inputs.files(assetsToCheck)
+    doLast {
+        check(assetsToCheck.isEmpty) { "Public APK must not bundle authentication or private credential assets" }
+    }
+}
+tasks.named("preBuild") { dependsOn(rejectBundledCredentials) }

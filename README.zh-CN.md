@@ -6,7 +6,7 @@
 
 [GitHub 下载](https://github.com/memphisyu/wheelplay/releases) · [Gitee 国内下载](https://gitee.com/memphisyu/wheelplay/releases) · [上游项目](https://github.com/fython/wheelplay)
 
-本仓库为小鹏定制分支 `xpeng`。本地 1.0.2 RC4 集成候选已合并上游 `45d1740`，尚未发布；下载页以实际发行版为准。小鹏版保留 MSE/FLAC 浏览器音乐、媒体信息与封面、方向盘控制、Root 后台保活和 GitHub/Gitee 应用内更新。上述车机功能仍取决于浏览器与车型支持。
+本仓库为小鹏定制分支 `xpeng`。本地 1.0.2 RC4 集成候选已合并上游 `0db266b`，尚未发布；下载页以实际发行版为准。小鹏版保留 MSE/FLAC 浏览器音乐、媒体信息与封面、方向盘控制、Root 后台保活和 GitHub/Gitee 应用内更新。上述车机功能仍取决于浏览器与车型支持。
 
 新版设置采用分类界面，应用更新及 Root 设置位于“应用更新 / 小鹏后台保活”。已有认证、证书及设置保留原存储；升级后请关闭旧车机网页，重新打开配对。默认使用 JPEG、原生视频；WebP、Canvas、浏览器 GPS、mDNS 及低端口兼容需自行开启。Android Auto/VNC 属于上游实验输入源，尚未在 G9/15T 验证。
 

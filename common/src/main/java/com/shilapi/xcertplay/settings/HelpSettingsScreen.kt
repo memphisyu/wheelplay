@@ -51,7 +51,7 @@ internal fun HelpSettingsScreen(state: SettingsState, actions: SettingsActions) 
     SettingsGroup(R.string.settings_open_source) {
         SettingsRow(
             settingsString(R.string.settings_source),
-            "github.com/fython/wheelplay",
+            "github.com/memphisyu/wheelplay",
             "settings:source",
         ) {
             actions.command(SettingsCommand.SOURCE)

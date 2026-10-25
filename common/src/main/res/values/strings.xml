@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name" translatable="false">Wheelplay 小鹏定制版</string>
+    <string name="aa_microphone_permission_denied">Microphone permission was denied. Android Auto will connect without microphone input.</string>
     <string name="notification_action_previous">Previous track</string>
     <string name="notification_action_play">Play</string>
     <string name="notification_action_pause">Pause</string>

@@ -4,93 +4,140 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.util.Log
 import java.net.InetAddress
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceInfo
 
-internal data class MdnsTarget(val interfaceName: String, val address: String, val hostname: String, val port: Int)
-
-/** Only the worker owns publications; creation and goodbye packets never block the UI. */
-internal class MdnsPublications(
-    private val open: (MdnsTarget) -> AutoCloseable,
-    private val onFailure: (Exception) -> Unit,
-) : AutoCloseable {
-    private val active = mutableMapOf<MdnsTarget, AutoCloseable>()
-    fun update(targets: Set<MdnsTarget>) {
-        active.keys.filter { it !in targets }.forEach { key -> dispose(active.remove(key)!!) }
-        targets.filter { it !in active }.forEach { target ->
-            try { active[target] = open(target) } catch (error: Exception) { onFailure(error) }
-        }
-    }
-    private fun dispose(value: AutoCloseable) {
-        try { value.close() } catch (error: Exception) { onFailure(error) }
-    }
-    override fun close() { active.values.forEach(::dispose); active.clear() }
-}
-
-/** Adapted from upstream a6af3cd; opt-in, serialized I/O and Wi-Fi multicast ownership. */
+/** Publishes the Web listener on each reachable LAN interface. */
 internal class WebMdns(
-    private val snapshot: () -> Set<MdnsTarget>,
-    open: (MdnsTarget) -> AutoCloseable,
-    private val onFailure: (Exception) -> Unit = { Log.w("WebMdns", "mDNS announcement failed", it) },
+    private val context: Context,
+    private val wifiManager: () -> WifiManager? = {
+        context.applicationContext.getSystemService(WifiManager::class.java)
+    },
+    private val discover: () -> List<LanAddresses.Entry> = { LanAddresses.discover(context) },
+    private val createResponder: (InetAddress, String) -> Responder = { address, hostname ->
+        val dns = JmDNS.create(address, hostname)
+        object : Responder {
+            override fun register(port: Int) {
+                dns.registerService(ServiceInfo.create("_http._tcp.local.", "WheelPlay", port, "path=/"))
+            }
+            override fun close() = dns.close()
+        }
+    },
+    autoRefresh: Boolean = true,
 ) : AutoCloseable {
-    private val closed = AtomicBoolean(false)
-    private val publications = MdnsPublications(open, onFailure)
+    internal interface Responder : AutoCloseable {
+        fun register(port: Int)
+    }
+
+    private data class Publication(val responder: Responder, val needsMulticast: Boolean)
+
+    private val active = AtomicBoolean(true)
+    // Each lifecycle owns its worker, responders and lock. Retiring workers never touch a successor.
     private val worker = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "wheelplay-web-mdns").apply { isDaemon = true }
     }
-    private val periodic = worker.scheduleWithFixedDelay(::refresh, 0, 10, TimeUnit.SECONDS)
+    private val instances = mutableMapOf<String, Publication>()
+    private var multicastLock: WifiManager.MulticastLock? = null
+    private val periodicRefresh = if (autoRefresh) worker.scheduleWithFixedDelay(
+        { refreshOnWorker() }, 0, 10, TimeUnit.SECONDS,
+    ) else null
 
-    constructor(context: Context) : this(
-        snapshot = {
-            val port = WebSession.httpListenerPort
-            if (port == null) emptySet() else targets(LanAddresses.discover(context),
-                WebListenSettings.mdnsHostname(context), port)
-        },
-        open = { target -> publish(context, target) },
-    )
+    /** Queue a refresh; callers never register or close a responder themselves. */
+    internal fun refresh(): Future<*> {
+        if (!active.get()) return CompletableFuture.completedFuture(Unit)
+        return try {
+            worker.submit { refreshOnWorker() }
+        } catch (_: RejectedExecutionException) {
+            // close() may shut down the worker between the active check and submission.
+            CompletableFuture.completedFuture(Unit)
+        }
+    }
 
-    private fun refresh() {
-        if (closed.get()) return
-        try { publications.update(snapshot()) } catch (error: Exception) { onFailure(error) }
+    private fun refreshOnWorker() {
+        if (!active.get()) return
+        runCatching { updatePublications() }
+            .onFailure { Log.w("WebMdns", "mDNS refresh failed", it) }
     }
-    fun refreshNow() {
-        if (closed.get()) return
-        try { worker.execute(::refresh) } catch (_: java.util.concurrent.RejectedExecutionException) { }
+
+    private fun updatePublications() {
+        val hostname = WebListenSettings.mdnsHostname(context)
+        val port = WebSession.httpListenerPort ?: WebSession.httpPort
+        val addresses = discover().filter {
+            it.kind !in setOf(LanAddresses.Kind.TESLA_HTTP, LanAddresses.Kind.VPN,
+                LanAddresses.Kind.CELLULAR, LanAddresses.Kind.P2P)
+        }.associateBy { "${it.interfaceName}/${it.address}/${it.kind}" }
+        val target = addresses.keys.map { "$it/$hostname/$port" }.toSet()
+        instances.keys.filter { it !in target }.forEach { key ->
+            runCatching { instances.remove(key)?.responder?.close() }
+        }
+        releaseUnusedMulticastLock()
+        for ((key, entry) in addresses) {
+            if (!active.get()) break
+            val identity = "$key/$hostname/$port"
+            if (identity in instances) continue
+            val needsMulticast = entry.kind in setOf(LanAddresses.Kind.WIFI, LanAddresses.Kind.HOTSPOT)
+            runCatching {
+                // Acquire before JmDNS opens its socket and sends the initial probes.
+                if (needsMulticast) acquireMulticastLock()
+                val dns = createResponder(InetAddress.getByName(entry.address), hostname.removeSuffix(".local"))
+                try {
+                    // Creation/registration may finish after close() invalidated this lifecycle.
+                    if (active.get()) dns.register(port)
+                } catch (error: Exception) {
+                    runCatching { dns.close() }
+                    throw error
+                }
+                if (active.get()) instances[identity] = Publication(dns, needsMulticast)
+                else runCatching { dns.close() }
+            }.onFailure { Log.w("WebMdns", "mDNS publication failed on $key", it) }
+            releaseUnusedMulticastLock()
+        }
     }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock != null) return
+        val lock = checkNotNull(wifiManager()) { "Wi-Fi manager unavailable" }
+            .createMulticastLock("wheelplay-web-mdns")
+        try {
+            lock.setReferenceCounted(false)
+            lock.acquire()
+            multicastLock = lock
+        } catch (error: Exception) {
+            runCatching { if (lock.isHeld) lock.release() }
+            throw error
+        }
+    }
+
+    private fun releaseUnusedMulticastLock() {
+        if (instances.values.any { it.needsMulticast }) return
+        val lock = multicastLock ?: return
+        multicastLock = null
+        runCatching { if (lock.isHeld) lock.release() }
+            .onFailure { Log.w("WebMdns", "mDNS multicast lock release failed", it) }
+    }
+
+    /** Invalidate immediately, then let the owner finish in-flight work and clean up off-thread. */
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
-        periodic.cancel(false)
-        // Queue after any in-flight creation so a late result is closed as well.
-        worker.execute { publications.close() }
+        if (!active.compareAndSet(true, false)) return
+        periodicRefresh?.cancel(false)
+        worker.execute { closeOnWorker() }
         worker.shutdown()
     }
 
-    companion object {
-        internal fun targets(entries: List<LanAddresses.Entry>, hostname: String, port: Int): Set<MdnsTarget> =
-            entries.filter { it.kind !in setOf(LanAddresses.Kind.TESLA_HTTP, LanAddresses.Kind.VPN,
-                LanAddresses.Kind.CELLULAR, LanAddresses.Kind.P2P) }
-                .map { MdnsTarget(it.interfaceName, it.address, hostname, port) }.toSet()
-
-        private fun publish(context: Context, target: MdnsTarget): AutoCloseable {
-            val lock = context.getSystemService(WifiManager::class.java)
-                ?.createMulticastLock("wheelplay-web-mdns")?.apply { setReferenceCounted(false) }
-            var dns: JmDNS? = null
-            try {
-                lock?.acquire()
-                dns = JmDNS.create(InetAddress.getByName(target.address), target.hostname.removeSuffix(".local"))
-                dns.registerService(ServiceInfo.create("_http._tcp.local.", "WheelPlay", target.port, "path=/"))
-                val registration = dns
-                return AutoCloseable {
-                    try { registration.close() } finally { if (lock?.isHeld == true) lock.release() }
-                }
-            } catch (error: Exception) {
-                runCatching { dns?.close() }
-                if (lock?.isHeld == true) lock.release()
-                throw error
-            }
-        }
+    private fun closeOnWorker() {
+        // Keep multicast reception enabled until responders finish their goodbye/close.
+        instances.values.forEach { runCatching { it.responder.close() } }
+        instances.clear()
+        releaseUnusedMulticastLock()
     }
+
+    /** Tests can await cleanup without making service stop or hostname changes wait for it. */
+    internal fun awaitClosed(timeout: Long, unit: TimeUnit): Boolean =
+        worker.awaitTermination(timeout, unit)
 }

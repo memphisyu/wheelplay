@@ -29,6 +29,21 @@ class CarPlayBrowserDisplaySizeTest {
             .apply { isAccessible = true }.invoke(host, size) as AirPlayPhysicalSizeMm
     }
 
+    @Test fun legacyCanvasScaleIsRetiredWithoutChangingSavedSizeOrResolution() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("xcertplay_airplay", android.content.Context.MODE_PRIVATE)
+        for (percent in listOf(75, 85, 100, 115)) {
+            AirPlayPersistence.saveWidthPhysicalMm(context, 200)
+            AirPlayPersistence.saveDisplayScaleTenths(context, 8)
+            prefs.edit().putInt("ui_scale_percent", percent).commit()
+            assertEquals(100, AirPlayPersistence.loadUiScalePercent(context))
+            assertEquals(false, prefs.contains("ui_scale_percent"))
+            assertEquals(200, AirPlayPersistence.loadWidthPhysicalMm(context))
+            assertEquals(8, AirPlayPersistence.loadDisplayScaleTenths(context))
+            assertEquals(100, AirPlayPersistence.loadUiScalePercent(context))
+        }
+    }
+
     @Test fun mediumBrowserCanvasKeepsItsPhysicalSizeAfterAFourKViewport() {
         assertEquals(AirPlayPhysicalSizeMm(300, 233), physicalSize(host(), 1184, 920))
     }

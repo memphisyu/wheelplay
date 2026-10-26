@@ -11,9 +11,11 @@ enum class CarPlaySize(
     @param:androidx.annotation.StringRes val labelRes: Int,
     val widthMillimeters: Int,
 ) {
-    LARGE(UiR.string.host_large, 250),
+    SMALLER(UiR.string.host_smaller_size, 400),
+    SMALL(UiR.string.host_small, 350),
     MEDIUM(UiR.string.host_medium, 300),
-    SMALL(UiR.string.host_small, 350);
+    LARGE(UiR.string.host_large, 250),
+    LARGER(UiR.string.host_larger_size, 200);
 
     companion object {
         val DEFAULT = MEDIUM

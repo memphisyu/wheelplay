@@ -157,10 +157,14 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_HEVC_ENABLED, false)
 
-    fun loadUiScalePercent(context: Context): Int = CarPlayUiScale.sanitize(
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_UI_SCALE_PERCENT, CarPlayUiScale.DEFAULT),
-    )
+    /** The visible physical-size selector is the sole UI size control.
+     * Retire the hidden legacy canvas multiplier without changing the user's selected width.
+     */
+    fun loadUiScalePercent(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.contains(KEY_UI_SCALE_PERCENT)) prefs.edit().remove(KEY_UI_SCALE_PERCENT).apply()
+        return CarPlayUiScale.DEFAULT
+    }
 
     fun saveUiScalePercent(context: Context, percent: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

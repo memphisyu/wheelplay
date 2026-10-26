@@ -567,4 +567,6 @@
     <string name="web_location_unavailable">暫時無法取得定位，請檢查裝置定位服務。</string>
     <string name="web_location_ready">已取得定位權限，將在連線期間分享瀏覽器 GPS 定位。</string>
     <string name="web_location_active">正在轉送瀏覽器 GPS 定位。</string>
+    <string name="host_smaller_size">更小</string>
+    <string name="host_larger_size">更大</string>
 </resources>

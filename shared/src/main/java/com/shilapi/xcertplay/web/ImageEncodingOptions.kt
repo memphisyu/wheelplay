@@ -5,7 +5,7 @@ data class ImageEncodingOptions(val format: ImageFormat = ImageFormat.JPEG, val 
     init { require(quality in QUALITY_RANGE) }
 
     companion object {
-        const val DEFAULT_QUALITY = 75
+        const val DEFAULT_QUALITY = 50
         val QUALITY_RANGE = 1..100
         fun sanitizeQuality(value: Int) = value.takeIf { it in QUALITY_RANGE } ?: DEFAULT_QUALITY
     }

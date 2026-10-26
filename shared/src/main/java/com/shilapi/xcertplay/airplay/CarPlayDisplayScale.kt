@@ -6,7 +6,7 @@ package com.shilapi.xcertplay.airplay
 object CarPlayDisplayScale {
     const val MIN_TENTHS = 3
     const val MAX_TENTHS = 10
-    const val DEFAULT_TENTHS = MAX_TENTHS
+    const val DEFAULT_TENTHS = 8
 
     fun sanitize(tenths: Int): Int = tenths.coerceIn(MIN_TENTHS, MAX_TENTHS)
 

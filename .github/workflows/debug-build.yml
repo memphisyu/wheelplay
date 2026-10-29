@@ -2,6 +2,12 @@ name: Android Debug Build
 
 on:
   push:
+    # PR branches are checked by pull_request; retain both maintained branches.
+    branches:
+      - main
+      - xpeng
+    tags:
+      - '**'
     paths-ignore:
       - '**.md'
       - 'website/**'

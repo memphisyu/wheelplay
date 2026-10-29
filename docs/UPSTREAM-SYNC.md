@@ -49,3 +49,9 @@ APK 包名仍为 `moe.feng.wheelplay.xpengaudio`，与既有发布版使用同�
 `4ed3536` 的独立适配仅修改测试、CI 和文档。`common:assembleDebugAndroidTest`、`mobile:assembleDebug`、`mobile:lintDebug` 成功；Debug lint 为 0 错误、35 条警告。common/shared 的单元测试任务通过（沿用有效的 Gradle UP-TO-DATE 结果，报告分别为 315/422 项，0 失败），网页 Node 测试重新运行 102 项全部通过。工作流 YAML 及测试 APK 的自测试包名、最低 API 28、网络权限和 HTTP 配置已核对。
 
 本机无连接设备或已安装模拟器，新增 Android HTTP 仪器测试尚未实际运行；API 28/36 的结果须由新增 CI 验证。RTC 原生测试本次仅验证编译，不能据此声称真实 ICE/编解码运行通过。本次未更改版本号或发布 Release。
+
+## 2026-10-29 选择性维护同步
+
+经用户确认适配 c20e6b0（认证导入跨页面重建的测试同步）与 80ac0f6（减少重复构建，额外保留 xpeng 分支推送触发）。未完整合入 ccd01f0；独立 APK 插件框架与实验 Shizuku 虚拟桌面继续暂缓。1.0.3 RC3 / versionCode 46 保留 RC2 五档尺寸及旧缩放值退出策略、RC1 默认参数、原签名与两张社区二维码。本次没有针对实车故障的新修复。
+
+本轮验证：认证导入回归测试通过；Release APK 构建通过，lint 0 错误、25 条既有警告；工作流 YAML 与 main/xpeng/标签/PR 触发配置检查通过。未运行新的云端构建或实车验证。
